@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Build artifacts
+build/
+dist/
+mcpb_build/
+installer_out/
+*.mcpb
+
+# Bundled ActivityWatch portable (fetched at build time via fetch_aw.py)
+aw_dist/
+
+# Local debris
+*.log
+mcp_err.txt

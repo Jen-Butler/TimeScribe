@@ -1,0 +1,399 @@
+"""Local FastAPI backend. Binds 127.0.0.1 only."""
+from __future__ import annotations
+import threading
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+
+from timescribe import appconfig
+from timescribe.psa.halo import HaloPSAAdapter
+
+app = FastAPI(title="TimeScribe Desktop", docs_url=None, redoc_url=None)
+
+_adapter: Optional[HaloPSAAdapter] = None
+_oauth_lock = threading.Lock()
+
+
+def get_adapter() -> Optional[HaloPSAAdapter]:
+    global _adapter
+    cfg = appconfig.load()
+    if not cfg.get("halo_base_url") or not cfg.get("halo_client_id"):
+        return None
+    if (_adapter is None
+            or _adapter.base_url != cfg["halo_base_url"].rstrip("/")
+            or _adapter.client_id != cfg["halo_client_id"]):
+        _adapter = HaloPSAAdapter(
+            base_url=cfg["halo_base_url"],
+            client_id=cfg["halo_client_id"],
+        )
+    return _adapter
+
+
+# ---------- UI ----------
+
+def _ui_path() -> Path:
+    import sys
+    if getattr(sys, "frozen", False):
+        # PyInstaller: data files land under sys._MEIPASS (onefile) or the
+        # exe dir (onedir). We add ui/ via the spec's datas.
+        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        return base / "ui" / "index.html"
+    return Path(__file__).parent / "ui" / "index.html"
+
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return _ui_path().read_text(encoding="utf-8")
+
+
+# ---------- API ----------
+
+class ConfigUpdate(BaseModel):
+    halo_base_url: Optional[str] = None
+    halo_client_id: Optional[str] = None
+    timezone: Optional[str] = None
+    work_start: Optional[str] = None
+    work_end: Optional[str] = None
+    exclude_profiles: Optional[list] = None
+    llm_provider: Optional[str] = None      # "anthropic" | "openai"
+    aw_host: Optional[str] = None
+
+
+class SecretUpdate(BaseModel):
+    name: str          # "anthropic_api_key"
+    value: str
+
+
+@app.get("/api/status")
+def status():
+    cfg = appconfig.load()
+    a = get_adapter()
+    halo_connected = False
+    agent = None
+    if a and a.is_authenticated():
+        halo_connected = True
+        try:
+            rec = a.get_current_agent()
+            agent = {"id": rec.get("id"), "name": rec.get("name")}
+        except Exception:
+            agent = None
+    return {
+        "halo_configured": bool(cfg.get("halo_base_url") and cfg.get("halo_client_id")),
+        "halo_connected": halo_connected,
+        "agent": agent,
+        "anthropic_key_set": appconfig.get_secret("anthropic_api_key") is not None,
+        "openai_key_set": appconfig.get_secret("openai_api_key") is not None,
+        "llm_provider": cfg.get("llm_provider", "anthropic"),
+        "config": {k: v for k, v in cfg.items() if "key" not in k.lower()},
+    }
+
+
+@app.post("/api/config")
+def update_config(body: ConfigUpdate):
+    cfg = appconfig.load()
+    for k, v in body.model_dump(exclude_none=True).items():
+        cfg[k] = v
+    appconfig.save(cfg)
+    return {"ok": True}
+
+
+@app.post("/api/secret")
+def set_secret(body: SecretUpdate):
+    if body.name not in ("anthropic_api_key", "openai_api_key"):
+        raise HTTPException(400, "unknown secret name")
+    appconfig.set_secret(body.name, body.value.strip())
+    return {"ok": True}
+
+
+@app.post("/api/halo/connect")
+def halo_connect():
+    a = get_adapter()
+    if a is None:
+        raise HTTPException(400, "Set Halo base URL and Client ID first")
+    if not _oauth_lock.acquire(blocking=False):
+        raise HTTPException(409, "OAuth flow already in progress")
+    try:
+        a.connect()   # opens browser, blocks until callback or timeout
+        rec = a.get_current_agent()
+        return {"ok": True, "agent": {"id": rec.get("id"), "name": rec.get("name")}}
+    except Exception as exc:
+        raise HTTPException(500, f"OAuth failed: {exc}")
+    finally:
+        _oauth_lock.release()
+
+
+@app.get("/api/tickets")
+def tickets(limit: int = 25):
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    items = a.list_open_tickets()
+    return {"count": len(items),
+            "tickets": [
+                {"id": t.id, "client": t.client, "subject": t.subject,
+                 "status": t.status}
+                for t in items[:limit]
+            ]}
+
+
+# ---------- Activity / digest ----------
+
+from datetime import date as _date
+from timescribe import digest as _digest
+from timescribe import activitywatch as _aw
+
+
+@app.get("/api/activity/status")
+def activity_status():
+    return {
+        "activitywatch": _aw.is_available(),
+    }
+
+
+@app.post("/api/digest/run")
+def digest_run(day: str = None, start: str = None, end: str = None):
+    """Run a digest. Optional start/end (HH:MM) restrict to a window
+    within the day; otherwise the whole day is digested."""
+    from datetime import datetime as _dtt, time as _time
+    target = _date.fromisoformat(day) if day else _date.today()
+    since = until = None
+    if start or end:
+        s = _dtt.strptime(start or "00:00", "%H:%M").time()
+        e = _dtt.strptime(end or "23:59", "%H:%M").time()
+        since = _dtt.combine(target, s)
+        until = _dtt.combine(target, e)
+    try:
+        entries = _digest.run_digest(target, since=since, until=until)
+        return {"ok": True, "count": len(entries), "entries": entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.get("/api/digest")
+def digest_get(day: str = None):
+    target = _date.fromisoformat(day) if day else _date.today()
+    return {"day": target.isoformat(), "entries": _digest.load_digest(target)}
+
+
+# ---------- Time entry drafts ----------
+
+from datetime import datetime as _dt
+from timescribe import inference as _inference
+from timescribe import drafts as _drafts
+from timescribe.psa.adapter import TimeEntry as _TimeEntry
+
+
+class DraftAction(BaseModel):
+    index: int
+    action: str = ""     # "approve" | "reject" (unused for split)
+
+
+@app.post("/api/drafts/generate")
+def drafts_generate(day: str = None):
+    """Import the day's digest entries directly as drafts -- NO second LLM
+    pass. The digest summaries become the notes; ticket assignment is the
+    technician's call (or use /api/drafts/suggest for AI matching)."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    entries = _digest.load_digest(target)
+    if not entries:
+        return {"drafts": [], "error": "No digest for this day. Run the digest first."}
+    existing = _drafts.load(target)
+    posted = [x for x in existing if x.get("status") == "posted"]
+    new_items = []
+    for e in entries:
+        tr = (e.get("time_range") or "").split("-")
+        if len(tr) != 2:
+            continue
+        new_items.append({
+            "ticket_id": None,
+            "start_time": tr[0].strip(),
+            "end_time": tr[1].strip(),
+            "note": e.get("summary", ""),
+            "confidence": 0.0,
+            "client": "", "subject": "(unassigned)",
+            "status": "draft",
+        })
+    _drafts.save(target, posted + new_items)
+    return {"drafts": new_items, "preserved_posted": len(posted)}
+
+
+@app.post("/api/drafts/suggest")
+def drafts_suggest(day: str = None):
+    """Optional AI pass: correlate digest entries to tickets (the old
+    inference behavior). Costs an LLM call."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    target = _date.fromisoformat(day) if day else _date.today()
+    try:
+        return _inference.generate_drafts(a, target)
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/api/drafts/split")
+def drafts_split(body: DraftAction, day: str = None):
+    """Split a draft into two halves at its midpoint (rounded to 5 min)."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    if not (0 <= body.index < len(items)):
+        raise HTTPException(404, "draft index out of range")
+    item = items[body.index]
+    if item.get("status") == "posted":
+        raise HTTPException(400, "cannot split a posted entry")
+    try:
+        sh, sm = map(int, item["start_time"].split(":"))
+        eh, em = map(int, item["end_time"].split(":"))
+    except (ValueError, KeyError):
+        raise HTTPException(400, "draft has malformed times")
+    start_m, end_m = sh * 60 + sm, eh * 60 + em
+    if end_m - start_m < 10:
+        raise HTTPException(400, "entry too short to split (needs >=10 min)")
+    mid_m = start_m + round((end_m - start_m) / 2 / 5) * 5
+    fmt = lambda m: f"{m // 60:02d}:{m % 60:02d}"
+    first = dict(item, end_time=fmt(mid_m), status="draft")
+    second = dict(item, start_time=fmt(mid_m), status="draft")
+    items[body.index] = first
+    items.insert(body.index + 1, second)
+    _drafts.save(target, items)
+    return {"ok": True, "count": len(items)}
+
+
+@app.get("/api/drafts")
+def drafts_get(day: str = None):
+    target = _date.fromisoformat(day) if day else _date.today()
+    return {"day": target.isoformat(), "drafts": _drafts.load(target)}
+
+
+@app.post("/api/drafts/action")
+def drafts_action(body: DraftAction, day: str = None):
+    target = _date.fromisoformat(day) if day else _date.today()
+    status = {"approve": "approved", "reject": "rejected"}.get(body.action)
+    if not status:
+        raise HTTPException(400, "action must be approve or reject")
+    return _drafts.set_status(target, body.index, status)
+
+
+class DraftUpdate(BaseModel):
+    index: int
+    ticket_id: Optional[int] = None      # None/blank -> Quick Time
+    note: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+
+
+@app.post("/api/drafts/update")
+def drafts_update(body: DraftUpdate, day: str = None):
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    if not (0 <= body.index < len(items)):
+        raise HTTPException(404, "draft index out of range")
+    item = items[body.index]
+    if item.get("status") == "posted":
+        raise HTTPException(400, "cannot edit a posted entry")
+    item["ticket_id"] = body.ticket_id          # explicit None clears it
+    if body.note is not None:
+        item["note"] = body.note
+    if body.start_time:
+        item["start_time"] = body.start_time
+    if body.end_time:
+        item["end_time"] = body.end_time
+    # Re-resolve display fields for the assigned ticket
+    a = get_adapter()
+    item["client"] = ""
+    item["subject"] = "(quick time)" if not body.ticket_id else "?"
+    if body.ticket_id and a and a.is_authenticated():
+        try:
+            for t in a.list_open_tickets():
+                if t.id == body.ticket_id:
+                    item["client"], item["subject"] = t.client, t.subject
+                    break
+        except Exception:
+            pass
+    _drafts.save(target, items)
+    return item
+
+
+@app.post("/api/drafts/post")
+def drafts_post(day: str = None):
+    """Post all APPROVED drafts to the PSA."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    results = []
+    for i, item in enumerate(items):
+        if item.get("status") != "approved":
+            continue
+        try:
+            tid = item.get("ticket_id")
+            entry = _TimeEntry(
+                ticket_id=int(tid) if tid else None,
+                start_local=_dt.combine(target, _dt.strptime(item["start_time"], "%H:%M").time()),
+                end_local=_dt.combine(target, _dt.strptime(item["end_time"], "%H:%M").time()),
+                note=item["note"],
+            )
+            posted_id = a.create_time_entry(entry)
+            _drafts.set_status(target, i, "posted", posted_id=posted_id)
+            results.append({"index": i, "ok": True, "posted_id": posted_id})
+        except Exception as exc:
+            results.append({"index": i, "ok": False, "error": str(exc)})
+    return {"results": results}
+
+
+# ---------- MCP config helper ----------
+
+@app.get("/api/mcp/config")
+def mcp_config():
+    """Ready-to-paste MCP registration for Claude Desktop / Cowork / Claude Code."""
+    import sys as _sys
+    if getattr(_sys, "frozen", False):
+        command = _sys.executable
+        args = ["mcp"]
+    else:
+        command = _sys.executable
+        args = ["-m", "timescribe.mcp_server"]
+    entry = {"command": command, "args": args}
+    import json as _json
+    return {
+        "server_name": "timescribe-activity",
+        "entry": entry,
+        "claude_desktop_json": _json.dumps(
+            {"mcpServers": {"timescribe-activity": entry}}, indent=2),
+        "claude_code_cmd": ("claude mcp add timescribe-activity --scope user -- "
+                            + command + " " + " ".join(args)),
+    }
+
+
+# ---------- Posted log + summary ----------
+
+@app.get("/api/posted")
+def posted(days: int = 14):
+    cfg = appconfig.load()
+    base = (cfg.get("halo_base_url") or "").rstrip("/")
+    items = _drafts.posted_log(days_back=days)
+    for it in items:
+        tid = it.get("ticket_id")
+        it["halo_url"] = f"{base}/tickets?id={tid}" if (base and tid) else None
+    return {"days": days, "count": len(items), "entries": items}
+
+
+@app.get("/api/summary")
+def summary(day: str = None):
+    target = _date.fromisoformat(day) if day else _date.today()
+    return {"day": target.isoformat(),
+            **_drafts.day_summary(target, _digest.load_digest(target))}
+
+
+# ---------- Scheduler ----------
+
+from timescribe import scheduler as _scheduler
+
+
+@app.get("/api/scheduler/status")
+def scheduler_status():
+    return _scheduler.status()

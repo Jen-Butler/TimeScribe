@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "timescribe"
+version = "0.1.0"
+description = "Local desktop app: browser digest + activity capture + time entries to your PSA"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40.0",
+    "pydantic>=2.0",
+    "requests>=2.31",
+    "platformdirs>=4.0",
+    "keyring>=24.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "httpx>=0.27",
+    "openai>=1.40",
+    "pystray>=0.19",
+    "pillow>=10.0",
+]
+
+[project.scripts]
+timescribe = "timescribe.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["timescribe*"]
+

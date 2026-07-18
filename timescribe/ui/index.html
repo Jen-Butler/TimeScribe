@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TimeScribe</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8;
+          --accent:#38bdf8; --good:#4ade80; --bad:#f87171; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg);
+         color: var(--text); padding: 24px; max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; margin-bottom: 16px; }
+  h2 { font-size: 15px; color: var(--muted); margin: 20px 0 8px; }
+  .card { background: var(--card); border-radius: 10px; padding: 18px; margin-bottom: 14px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #334155;
+          background: #0f172a; color: var(--text); font-size: 14px; }
+  button { margin-top: 12px; padding: 8px 18px; border: 0; border-radius: 6px;
+           background: var(--accent); color: #0f172a; font-weight: 600;
+           font-size: 14px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .status-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .pill { padding: 6px 14px; border-radius: 999px; font-size: 13px; background: #334155; }
+  .pill.ok  { background: rgba(74,222,128,.15); color: var(--good); }
+  .pill.err { background: rgba(248,113,113,.15); color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #334155; }
+  th { color: var(--muted); font-weight: 500; }
+  #msg { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .ok-text { color: var(--good); } .err-text { color: var(--bad); }
+</style>
+</head>
+<body>
+  <h1>TimeScribe</h1>
+
+  <div class="card">
+    <div class="status-row" id="statusRow">
+      <span class="pill" id="pillHalo">Halo: checking…</span>
+      <span class="pill" id="pillKey">Anthropic key: checking…</span>
+      <span class="pill" id="pillAgent"></span>
+      <span class="pill" id="pillSched"></span>
+    </div>
+  </div>
+
+  <div class="card" id="setupCard">
+    <h2>Setup</h2>
+    <label>HaloPSA URL</label>
+    <input id="haloUrl" placeholder="https://yourcompany.halopsa.com">
+    <label>Halo OAuth Client ID</label>
+    <input id="haloClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    <label>AI provider</label>
+    <select id="llmProvider" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:14px">
+      <option value="anthropic">Anthropic (Claude)</option>
+      <option value="openai">OpenAI (GPT)</option>
+      <option value="mcp">MCP only — no API key (use Claude Desktop / Cowork for AI)</option>
+    </select>
+    <div id="anthropicKeyRow">
+      <label>Anthropic API key <span style="color:var(--muted)">(stored in Windows Credential Manager)</span></label>
+      <input id="anthropicKey" type="password" placeholder="sk-ant-…">
+    </div>
+    <div id="openaiKeyRow">
+      <label>OpenAI API key <span style="color:var(--muted)">(stored in Windows Credential Manager)</span></label>
+      <input id="openaiKey" type="password" placeholder="sk-…">
+    </div>
+    <div id="mcpOnlyNote" style="display:none;color:var(--muted);font-size:12px;margin-top:8px">
+      MCP-only mode: in-app AI digests are disabled. Activity data stays available to
+      Claude via the bundled MCP server (see the MCP card below). Posting time entries
+      to Halo still works.
+    </div>
+    <button id="btnSave">Save settings</button>
+    <button id="btnConnect">Connect to Halo</button>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Activity
+      <input type="date" id="dayPick" style="width:auto;padding:4px 8px;font-size:12px;margin:0 8px">
+      <input type="time" id="timeFrom" style="width:auto;padding:4px 8px;font-size:12px" title="optional window start">
+      <span style="color:var(--muted)">–</span>
+      <input type="time" id="timeTo" style="width:auto;padding:4px 8px;font-size:12px" title="optional window end">
+      <button id="btnDigest" style="margin:0 0 0 8px;padding:4px 12px;font-size:12px">run digest</button>
+      <span id="awPill" class="pill" style="font-size:11px;margin-left:8px"></span>
+    </h2>
+    <div id="sumStrip" style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 10px;font-size:12px;color:var(--muted)"></div>
+    <div id="digestList" style="font-size:13px;line-height:1.7"></div>
+  </div>
+
+  <div class="card">
+    <h2>Draft time entries
+      <button id="btnGenDrafts" style="margin:0;padding:4px 12px;font-size:12px">import from digest</button>
+      <button id="btnSuggest" style="margin:0;padding:4px 12px;font-size:12px" title="Optional AI pass: matches entries to tickets (uses your API key)">AI ticket match</button>
+      <button id="btnPostDrafts" style="margin:0;padding:4px 12px;font-size:12px;background:var(--good)">post approved</button>
+    </h2>
+    <div id="msg2" style="font-size:13px;min-height:16px;margin-bottom:6px"></div>
+    <datalist id="ticketOptions"></datalist>
+    <div id="draftList" style="font-size:13px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Posted entries (last 14 days)
+      <button id="btnPostedRefresh" style="margin:0;padding:4px 12px;font-size:12px">refresh</button>
+    </h2>
+    <div id="postedList" style="font-size:13px;line-height:1.7"></div>
+  </div>
+
+  <div class="card">
+    <h2>Open tickets <button id="btnRefresh" style="margin:0;padding:4px 12px;font-size:12px">refresh</button></h2>
+    <table id="ticketTable">
+      <thead><tr><th>#</th><th>Client</th><th>Subject</th><th>Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Claude / MCP integration</h2>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
+      Expose your activity data (read-only) to Claude Desktop, Cowork, or Claude Code.
+    </div>
+    <button id="btnCopyMcpJson" style="margin:0;padding:4px 12px;font-size:12px">copy Claude Desktop config</button>
+    <button id="btnCopyMcpCmd" style="margin:0;padding:4px 12px;font-size:12px">copy Claude Code command</button>
+    <div id="mcpMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const api = (path, opts) => fetch(path, opts).then(async r => {
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
+  return r.json();
+});
+
+function setMsg(text, ok) {
+  $('msg').textContent = text;
+  $('msg').className = ok ? 'ok-text' : 'err-text';
+}
+
+async function refreshStatus() {
+  try {
+    const s = await api('/api/status');
+    $('pillHalo').textContent = 'Halo: ' + (s.halo_connected ? 'connected' :
+                                 (s.halo_configured ? 'configured, not connected' : 'not set up'));
+    $('pillHalo').className = 'pill ' + (s.halo_connected ? 'ok' : 'err');
+    $('pillKey').textContent = 'Anthropic key: ' + (s.anthropic_key_set ? 'set' : 'missing');
+    $('pillKey').className = 'pill ' + (s.anthropic_key_set ? 'ok' : 'err');
+    $('pillAgent').textContent = s.agent ? ('Signed in as ' + s.agent.name + ' (#' + s.agent.id + ')') : '';
+    $('pillAgent').style.display = s.agent ? '' : 'none';
+    if (s.config.halo_base_url) $('haloUrl').value = s.config.halo_base_url;
+    if (s.config.halo_client_id) $('haloClientId').value = s.config.halo_client_id;
+    if (s.llm_provider) $('llmProvider').value = s.llm_provider;
+    $('pillKey').textContent = 'AI key (' + (s.llm_provider || 'anthropic') + '): ' +
+      ((s.llm_provider === 'openai' ? s.openai_key_set : s.anthropic_key_set) ? 'set' : 'missing');
+    $('pillKey').className = 'pill ' +
+      ((s.llm_provider === 'openai' ? s.openai_key_set : s.anthropic_key_set) ? 'ok' : 'err');
+  } catch (e) { setMsg('Status check failed: ' + e.message, false); }
+}
+
+$('btnSave').onclick = async () => {
+  try {
+    await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({halo_base_url: $('haloUrl').value.trim(),
+                            halo_client_id: $('haloClientId').value.trim(),
+                            llm_provider: $('llmProvider').value})});
+    const key = $('anthropicKey').value.trim();
+    if (key) {
+      await api('/api/secret', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({name:'anthropic_api_key', value:key})});
+      $('anthropicKey').value = '';
+    }
+    const okey = $('openaiKey').value.trim();
+    if (okey) {
+      await api('/api/secret', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({name:'openai_api_key', value:okey})});
+      $('openaiKey').value = '';
+    }
+    setMsg('Saved.', true);
+    refreshStatus();
+  } catch (e) { setMsg('Save failed: ' + e.message, false); }
+};
+
+$('btnConnect').onclick = async () => {
+  setMsg('Opening browser for Halo sign-in… complete it there.', true);
+  $('btnConnect').disabled = true;
+  try {
+    const r = await api('/api/halo/connect', {method:'POST'});
+    setMsg('Connected as ' + r.agent.name + '.', true);
+    refreshStatus();
+  } catch (e) { setMsg(e.message, false); }
+  finally { $('btnConnect').disabled = false; }
+};
+
+$('btnRefresh').onclick = async () => {
+  try {
+    const r = await api('/api/tickets');
+    const tbody = $('ticketTable').querySelector('tbody');
+    tbody.innerHTML = '';
+    for (const t of r.tickets) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${t.id}</td><td>${t.client}</td><td>${t.subject}</td><td>${t.status}</td>`;
+      tbody.appendChild(tr);
+    }
+  } catch (e) { setMsg('Ticket fetch failed: ' + e.message, false); }
+};
+
+refreshStatus();
+$('dayPick').value = new Date().toISOString().slice(0,10);
+$('dayPick').onchange = () => { loadDigest(); loadDrafts(); loadSummary(); };
+
+function selDay() {
+  return $('dayPick').value || new Date().toISOString().slice(0,10);
+}
+
+async function loadDigest() {
+  try {
+    const r = await api('/api/digest?day=' + selDay());
+    const el = $('digestList');
+    el.innerHTML = r.entries.length ? '' : '<span style="color:var(--muted)">No digest yet today. Click run digest.</span>';
+    for (const e of r.entries) {
+      const div = document.createElement('div');
+      div.innerHTML = `<strong>${e.time_range}</strong> — ${e.summary}`;
+      el.appendChild(div);
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    const s = await api('/api/activity/status');
+    $('awPill').textContent = 'ActivityWatch: ' + (s.activitywatch ? 'connected' : 'not running');
+    $('awPill').className = 'pill ' + (s.activitywatch ? 'ok' : 'err');
+  } catch (e) { /* ignore */ }
+}
+
+$('btnDigest').onclick = async () => {
+  $('btnDigest').disabled = true;
+  $('btnDigest').textContent = 'running…';
+  try {
+    let q = '/api/digest/run?day=' + selDay();
+    if ($('timeFrom').value) q += '&start=' + $('timeFrom').value;
+    if ($('timeTo').value)   q += '&end=' + $('timeTo').value;
+    await api(q, {method:'POST'});
+    await loadDigest();
+  } catch (e) { setMsg('Digest failed: ' + e.message, false); }
+  finally { $('btnDigest').disabled = false; $('btnDigest').textContent = 'run digest'; }
+};
+
+loadDigest();
+
+function draftRow(d, i) {
+  const div = document.createElement('div');
+  div.style.cssText = 'border-bottom:1px solid #334155;padding:10px 0';
+  const conf = Math.round((d.confidence || 0) * 100);
+  const statusColor = {draft:'var(--muted)', approved:'var(--good)',
+                       rejected:'var(--bad)', posted:'var(--accent)'}[d.status] || 'var(--muted)';
+  const editable = d.status !== 'posted';
+  const ticketVal = d.ticket_id || '';
+  const target = d.ticket_id
+      ? `#${d.ticket_id} [${d.client}] ${d.subject}`
+      : 'Quick Time (no ticket)';
+
+  div.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="time" value="${d.start_time}" id="ds${i}" ${editable?'':'disabled'}
+             style="width:auto;padding:3px 6px;font-size:12px">
+      <span style="color:var(--muted)">–</span>
+      <input type="time" value="${d.end_time}" id="de${i}" ${editable?'':'disabled'}
+             style="width:auto;padding:3px 6px;font-size:12px">
+      <label style="margin:0;font-size:11px">ticket #</label>
+      <input value="${ticketVal}" id="dt${i}" placeholder="blank = quick time"
+             list="ticketOptions" ${editable?'':'disabled'}
+             style="width:150px;padding:3px 6px;font-size:12px">
+      <span style="color:${statusColor}">${d.status}</span>
+      <span style="color:var(--muted);font-size:11px">${conf ? conf + '% confident' : ''}</span>
+    </div>
+    <div style="color:var(--muted);font-size:11px;margin:3px 0">${target}</div>
+    <textarea id="dn${i}" ${editable?'':'disabled'} rows="2"
+      style="width:100%;margin:4px 0;padding:6px 8px;border-radius:6px;border:1px solid #334155;
+             background:#0f172a;color:var(--text);font-size:13px;font-family:inherit">${d.note}</textarea>`;
+
+  if (editable) {
+    const btns = document.createElement('div');
+    const mk = (label, bg, fn) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = `margin:2px 6px 0 0;padding:3px 12px;font-size:12px;background:${bg}`;
+      b.onclick = fn;
+      return b;
+    };
+    btns.appendChild(mk('save edits', 'var(--accent)', () => saveDraft(i)));
+    if (d.status !== 'approved')
+      btns.appendChild(mk('approve', 'var(--good)', () => draftAction(i, 'approve')));
+    if (d.status !== 'rejected')
+      btns.appendChild(mk('reject', 'var(--bad)', () => draftAction(i, 'reject')));
+    btns.appendChild(mk('split', '#a78bfa', () => splitDraft(i)));
+    div.appendChild(btns);
+  }
+  return div;
+}
+
+async function saveDraft(i) {
+  const tid = $('dt'+i).value.trim();
+  try {
+    await api('/api/drafts/update?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        index: i,
+        ticket_id: tid ? parseInt(tid, 10) : null,
+        note: $('dn'+i).value,
+        start_time: $('ds'+i).value,
+        end_time: $('de'+i).value,
+      })});
+    setMsg('Draft updated.', true);
+    loadDrafts();
+  } catch (e) { setMsg('Update failed: ' + e.message, false); }
+}
+
+async function loadDrafts() {
+  try {
+    const r = await api('/api/drafts?day=' + selDay());
+    const el = $('draftList');
+    el.innerHTML = r.drafts.length ? '' :
+      '<span style="color:var(--muted)">No drafts. Run the digest, then click generate.</span>';
+    // Display order: actionable first (draft > approved > rejected > posted),
+    // then by confidence desc. Original index preserved for actions.
+    const order = {draft: 0, approved: 1, rejected: 2, posted: 3};
+    const rows = r.drafts.map((d, i) => [d, i]).sort((a, b) =>
+      (order[a[0].status] ?? 9) - (order[b[0].status] ?? 9)
+      || (b[0].confidence || 0) - (a[0].confidence || 0));
+    rows.forEach(([d, i]) => el.appendChild(draftRow(d, i)));
+  } catch (e) { /* ignore */ }
+}
+
+async function draftAction(i, action) {
+  try {
+    await api('/api/drafts/action?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index: i, action})});
+    loadDrafts();
+  } catch (e) { setMsg('Draft action failed: ' + e.message, false); }
+}
+
+$('btnGenDrafts').onclick = async () => {
+  $('btnGenDrafts').disabled = true; $('btnGenDrafts').textContent = 'thinking…';
+  try {
+    const r = await api('/api/drafts/generate?day=' + selDay(), {method:'POST'});
+    if (r.error) setMsg2(r.error, false);
+    else setMsg2('Imported ' + r.drafts.length + ' entr' + (r.drafts.length===1?'y':'ies') +
+                 ' from the digest. Assign tickets (or leave blank for Quick Time), approve, post.', true);
+    loadDrafts(); loadSummary();
+  } catch (e) { setMsg2('Import failed: ' + e.message, false); }
+  finally { $('btnGenDrafts').disabled = false; $('btnGenDrafts').textContent = 'import from digest'; }
+};
+
+$('btnPostDrafts').onclick = async () => {
+  $('btnPostDrafts').disabled = true;
+  try {
+    const r = await api('/api/drafts/post?day=' + selDay(), {method:'POST'});
+    const ok = r.results.filter(x => x.ok).length;
+    const fail = r.results.filter(x => !x.ok);
+    let msg = `Posted ${ok} entr${ok===1?'y':'ies'}.`;
+    if (r.results.length === 0) msg = 'Nothing approved to post — approve some drafts first.';
+    if (fail.length) msg += ` ${fail.length} failed: ` + (fail[0].error || '').slice(0, 160);
+    setMsg2(msg, fail.length === 0 && r.results.length > 0);
+    loadDrafts(); loadSummary(); loadPosted();
+  } catch (e) { setMsg2('Post failed: ' + e.message, false); }
+  finally { $('btnPostDrafts').disabled = false; }
+};
+
+loadDrafts();
+
+async function loadSched() {
+  try {
+    const s = await api('/api/scheduler/status');
+    const el = $('pillSched');
+    if (!s.running) { el.textContent = 'Scheduler: off'; el.className = 'pill err'; return; }
+    let txt = 'Auto-digest: on';
+    if (s.last_digest) txt += ' · last ' + s.last_digest.slice(11, 16);
+    if (s.next_digest) txt += ' · next ' + s.next_digest.slice(11, 16);
+    el.textContent = txt;
+    el.className = 'pill ok';
+  } catch (e) { /* ignore */ }
+}
+loadSched();
+setInterval(loadSched, 60000);
+
+function fmtH(mins) { return (mins / 60).toFixed(1) + 'h'; }
+
+async function loadSummary() {
+  try {
+    const s = await api('/api/summary?day=' + selDay());
+    $('sumStrip').innerHTML =
+      `<span><strong style="color:var(--text)">${fmtH(s.captured_minutes)}</strong> captured</span>` +
+      `<span><strong style="color:var(--muted)">${fmtH(s.draft_minutes)}</strong> drafted</span>` +
+      `<span><strong style="color:var(--good)">${fmtH(s.approved_minutes)}</strong> approved</span>` +
+      `<span><strong style="color:var(--accent)">${fmtH(s.posted_minutes)}</strong> posted</span>` +
+      `<span><strong style="color:var(--bad)">${fmtH(s.unbilled_minutes)}</strong> unbilled</span>`;
+  } catch (e) { /* ignore */ }
+}
+
+async function loadPosted() {
+  try {
+    const r = await api('/api/posted');
+    const el = $('postedList');
+    el.innerHTML = r.entries.length ? '' :
+      '<span style="color:var(--muted)">Nothing posted in the last 14 days.</span>';
+    for (const p of r.entries) {
+      const div = document.createElement('div');
+      const target = p.ticket_id
+        ? (p.halo_url ? `<a href="${p.halo_url}" target="_blank" style="color:var(--accent)">#${p.ticket_id}</a>` : '#' + p.ticket_id)
+        : 'Quick Time';
+      div.innerHTML = `<strong>${p.day}</strong> ${p.start_time}-${p.end_time} (${fmtH(p.minutes)}) → ${target}` +
+        ` <span style="color:var(--muted)">${(p.note || '').slice(0, 90)}</span>`;
+      el.appendChild(div);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+$('btnPostedRefresh').onclick = loadPosted;
+loadSummary();
+loadPosted();
+
+// ---- msg helper local to the drafts card ----
+function setMsg2(text, ok) {
+  $('msg2').textContent = text;
+  $('msg2').className = ok ? 'ok-text' : 'err-text';
+}
+
+// ---- split ----
+async function splitDraft(i) {
+  try {
+    await api('/api/drafts/split?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index: i})});
+    setMsg2('Split into two entries — adjust times/notes as needed.', true);
+    loadDrafts();
+  } catch (e) { setMsg2('Split failed: ' + e.message, false); }
+}
+
+// ---- AI ticket match (optional LLM pass) ----
+$('btnSuggest').onclick = async () => {
+  $('btnSuggest').disabled = true; $('btnSuggest').textContent = 'matching…';
+  try {
+    const r = await api('/api/drafts/suggest?day=' + selDay(), {method:'POST'});
+    if (r.error) setMsg2(r.error, false);
+    else setMsg2('AI matched ' + r.drafts.length + ' draft(s) to tickets.', true);
+    loadDrafts();
+  } catch (e) { setMsg2('AI match failed: ' + e.message, false); }
+  finally { $('btnSuggest').disabled = false; $('btnSuggest').textContent = 'AI ticket match'; }
+};
+
+// ---- provider-aware setup UI + MCP-only mode ----
+function applyProviderUI() {
+  const p = $('llmProvider').value;
+  $('anthropicKeyRow').style.display = (p === 'anthropic') ? '' : 'none';
+  $('openaiKeyRow').style.display   = (p === 'openai') ? '' : 'none';
+  $('mcpOnlyNote').style.display    = (p === 'mcp') ? '' : 'none';
+  const aiDisabled = (p === 'mcp');
+  for (const id of ['btnDigest', 'btnSuggest']) {
+    $(id).disabled = aiDisabled;
+    $(id).title = aiDisabled ? 'Disabled in MCP-only mode (no API key)' : '';
+  }
+}
+$('llmProvider').onchange = applyProviderUI;
+
+// ---- ticket datalist for the draft ticket picker ----
+async function loadTicketOptions() {
+  try {
+    const r = await api('/api/tickets?limit=200');
+    const dl = $('ticketOptions');
+    dl.innerHTML = '';
+    for (const t of r.tickets) {
+      const o = document.createElement('option');
+      o.value = t.id;
+      o.label = `[${t.client}] ${t.subject.slice(0, 60)}`;
+      dl.appendChild(o);
+    }
+  } catch (e) { /* not connected yet */ }
+}
+loadTicketOptions();
+
+// ---- MCP config copy buttons ----
+async function copyMcp(kind) {
+  try {
+    const r = await api('/api/mcp/config');
+    const text = kind === 'json' ? r.claude_desktop_json : r.claude_code_cmd;
+    await navigator.clipboard.writeText(text);
+    $('mcpMsg').textContent = 'Copied. ' + (kind === 'json'
+      ? 'Merge into claude_desktop_config.json (Settings → Developer → Edit Config), then restart Claude.'
+      : 'Paste into a terminal where Claude Code is installed.');
+  } catch (e) { $('mcpMsg').textContent = 'Copy failed: ' + e.message; }
+}
+$('btnCopyMcpJson').onclick = () => copyMcp('json');
+$('btnCopyMcpCmd').onclick = () => copyMcp('cmd');
+
+applyProviderUI();
+</script>
+</body>
+</html>
