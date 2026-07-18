@@ -38,7 +38,9 @@ AFK detection ┘        │
 
 ## Install (end user)
 
-1. Run `TimeScribe-Setup-<version>.exe` — installs per-user (no admin),
+1. Download `TimeScribe-Setup-<version>.exe` from the
+   [Releases page](https://github.com/Jen-Butler/timescribe/releases) and
+   run it — installs per-user (no admin),
    optional start-at-login, bundles ActivityWatch so there's nothing else to
    set up.
 2. First launch opens the dashboard. Fill in the **Setup** card:
@@ -74,6 +76,16 @@ to protect because the app is a public PKCE client.
    blank-ticket entries post as `Quick Time - <you> - <date>`.
 6. The summary strip tracks captured / drafted / approved / posted / unbilled
    hours; the posted log keeps 14 days of history with links into Halo.
+
+## Uninstall
+
+Windows Settings → Apps → TimeScribe → Uninstall (or the uninstaller in the
+install folder). The uninstaller stops the app and any bundled ActivityWatch
+processes, removes all installed files and shortcuts, and then **asks whether
+to also delete your data** — settings, activity digests, draft time entries,
+logs, and the stored credentials in Windows Credential Manager. Answer *Yes*
+for a complete removal with no traces; answer *No* to keep your data for a
+future reinstall. Time entries already posted to HaloPSA are never touched.
 
 ## Development
 
