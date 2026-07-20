@@ -378,7 +378,12 @@ def mcp_config():
         command = _sys.executable
         args = ["mcp"]
     else:
+        # The tray app runs under pythonw.exe (no console window), but MCP
+        # servers must use python.exe: Claude Desktop talks to the server
+        # over stdio, and pythonw detaches from it -> "Server disconnected".
         command = _sys.executable
+        if command.lower().endswith("pythonw.exe"):
+            command = command[:-len("pythonw.exe")] + "python.exe"
         args = ["-m", "timescribe.mcp_server"]
     entry = {"command": command, "args": args}
     import json as _json
