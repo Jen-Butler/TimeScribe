@@ -46,11 +46,11 @@ function Get-Python {
     return $null
 }
 
-function New-Shortcut($LinkPath, $Target, $Args, $WorkDir, $Icon) {
+function New-Shortcut($LinkPath, $Target, $Arguments, $WorkDir, $Icon) {
     $ws = New-Object -ComObject WScript.Shell
     $sc = $ws.CreateShortcut($LinkPath)
     $sc.TargetPath = $Target
-    $sc.Arguments = $Args
+    $sc.Arguments = $Arguments
     $sc.WorkingDirectory = $WorkDir
     if ($Icon) { $sc.IconLocation = $Icon }
     $sc.Save()
@@ -99,8 +99,22 @@ Write-Step "Installing TimeScribe + dependencies"
 Invoke-Expression "$py -m pip install -e `"$Here`" --quiet"
 
 if (-not $SkipAW) {
-    if (Test-Path "$Here\aw_dist\activitywatch\aw-qt.exe") {
-        Write-Host "ActivityWatch already fetched."
+    # Skip the download entirely if ActivityWatch is already present:
+    # running server, an installed copy, or a previously fetched bundle.
+    $awRunning = $false
+    try {
+        $r = Invoke-WebRequest "http://127.0.0.1:5600/api/0/info" -TimeoutSec 2 -UseBasicParsing
+        $awRunning = ($r.StatusCode -eq 200)
+    } catch { }
+    $awInstalled = (Test-Path "$env:LOCALAPPDATA\Programs\ActivityWatch\aw-qt.exe") -or
+                   (Test-Path "C:\Program Files\ActivityWatch\aw-qt.exe")
+
+    if ($awRunning) {
+        Write-Host "ActivityWatch is already running on this machine - skipping bundle download."
+    } elseif ($awInstalled) {
+        Write-Host "ActivityWatch is already installed - skipping bundle download."
+    } elseif (Test-Path "$Here\aw_dist\activitywatch\aw-qt.exe") {
+        Write-Host "ActivityWatch bundle already fetched."
     } else {
         Write-Step "Fetching ActivityWatch portable (~150 MB, one time)"
         Invoke-Expression "$py `"$Here\fetch_aw.py`""
@@ -126,7 +140,16 @@ if (-not $NoStartup) {
 }
 
 Write-Step "Launching TimeScribe"
-Start-Process $pyw -ArgumentList "-m timescribe app" -WorkingDirectory $Here
+$alreadyRunning = $false
+try {
+    $r = Invoke-WebRequest "http://127.0.0.1:8770/api/status" -TimeoutSec 2 -UseBasicParsing
+    $alreadyRunning = ($r.StatusCode -eq 200)
+} catch { }
+if ($alreadyRunning) {
+    Write-Host "TimeScribe is already running - not starting a second instance."
+} else {
+    Start-Process $pyw -ArgumentList "-m timescribe app" -WorkingDirectory $Here
+}
 
 Write-Host @"
 
