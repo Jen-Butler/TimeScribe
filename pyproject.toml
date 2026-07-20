@@ -19,6 +19,7 @@ dependencies = [
     "openai>=1.40",
     "pystray>=0.19",
     "pillow>=10.0",
+    "mcp>=1.0",
 ]
 
 [project.scripts]
