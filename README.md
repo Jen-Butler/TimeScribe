@@ -116,6 +116,28 @@ logs, and the stored credentials in Windows Credential Manager. Answer *Yes*
 for a complete removal with no traces; answer *No* to keep your data for a
 future reinstall. Time entries already posted to HaloPSA are never touched.
 
+## Troubleshooting
+
+**"spawn EPERM" when installing the Claude Desktop extension.** The .mcpb
+bundles an unsigned `timescribe-mcp.exe`; Windows sometimes refuses to run
+it. To confirm and fix, on the affected machine:
+
+1. Check whether Defender removed or blocked it: Windows Security →
+   Virus & threat protection → Protection history. If quarantined, choose
+   Restore and add an Allow action, then disable/re-enable the extension in
+   Claude Desktop → Settings → Extensions.
+2. If you have **Smart App Control** on (Windows Security → App & browser
+   control), it blocks all unsigned executables and cannot allowlist
+   individual files. Until the binary is code-signed, the extension can't
+   run on such machines.
+3. Otherwise try launching the binary directly in a terminal:
+   `& "$env:APPDATA\Claude\Claude Extensions\<timescribe folder>\server\timescribe-mcp.exe"`
+   — the error shown there tells you what's blocking it.
+
+**Python traceback popup mentioning `FileExistsError` and `aw-qt` right
+after install.** Harmless one-time race between two ActivityWatch launches
+(fixed in source after v0.1.1). Everything still works; dismiss the dialog.
+
 ## Development
 
 Requires Python 3.10+ on Windows.
