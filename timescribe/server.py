@@ -234,6 +234,29 @@ def drafts_suggest(day: str = None):
         raise HTTPException(500, str(exc))
 
 
+@app.post("/api/drafts/add")
+def drafts_add(day: str = None):
+    """Add a blank manual draft (works in every mode, incl. MCP-only)."""
+    from datetime import datetime as _now_dt
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    now = _now_dt.now()
+    start_m = (now.hour * 60 + now.minute) // 5 * 5
+    end_m = min(start_m + 30, 23 * 60 + 55)
+    fmt = lambda m: f"{m // 60:02d}:{m % 60:02d}"
+    items.append({
+        "ticket_id": None,
+        "start_time": fmt(start_m),
+        "end_time": fmt(end_m),
+        "note": "",
+        "confidence": 0.0,
+        "client": "", "subject": "(manual entry)",
+        "status": "draft",
+    })
+    _drafts.save(target, items)
+    return {"ok": True, "index": len(items) - 1}
+
+
 @app.post("/api/drafts/split")
 def drafts_split(body: DraftAction, day: str = None):
     """Split a draft into two halves at its midpoint (rounded to 5 min)."""

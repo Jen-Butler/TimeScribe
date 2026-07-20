@@ -28,6 +28,17 @@
   th { color: var(--muted); font-weight: 500; }
   #msg { font-size: 13px; margin-top: 8px; min-height: 18px; }
   .ok-text { color: var(--good); } .err-text { color: var(--bad); }
+
+  /* Tab navigation */
+  nav { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #334155; }
+  nav button {
+    margin: 0; padding: 8px 18px; background: transparent; color: var(--muted);
+    border-radius: 8px 8px 0 0; font-weight: 500; border-bottom: 2px solid transparent;
+  }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(56,189,248,.06); }
+  nav button:hover:not(.active) { color: var(--text); }
+  .pane { display: none; }
+  .pane.active { display: block; }
 </style>
 </head>
 <body>
@@ -42,6 +53,14 @@
     </div>
   </div>
 
+  <nav>
+    <button data-tab="today" class="active">Today</button>
+    <button data-tab="history">History</button>
+    <button data-tab="tickets">Tickets</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+
+  <div class="pane" data-pane="settings">
   <div class="card" id="setupCard">
     <h2>Setup</h2>
     <label>HaloPSA URL</label>
@@ -63,14 +82,18 @@
       <input id="openaiKey" type="password" placeholder="sk-…">
     </div>
     <div id="mcpOnlyNote" style="display:none;color:var(--muted);font-size:12px;margin-top:8px">
-      MCP-only mode: in-app AI digests are disabled. Activity data stays available to
-      Claude via the bundled MCP server (see the MCP card below). Posting time entries
-      to Halo still works.
+      MCP-only mode: no API key, no in-app AI. Your activity data stays available to
+      Claude through the MCP extension (below), and you process time entries with
+      your own tools from there. The Today tab's AI features are disabled; manual
+      entries and posting to Halo still work if you want them.
     </div>
     <button id="btnSave">Save settings</button>
     <button id="btnConnect">Connect to Halo</button>
     <div id="msg"></div>
   </div>
+  </div><!-- /settings pane (setup) -->
+
+  <div class="pane active" data-pane="today">
 
   <div class="card">
     <h2>Activity
@@ -78,7 +101,7 @@
       <input type="time" id="timeFrom" style="width:auto;padding:4px 8px;font-size:12px" title="optional window start">
       <span style="color:var(--muted)">–</span>
       <input type="time" id="timeTo" style="width:auto;padding:4px 8px;font-size:12px" title="optional window end">
-      <button id="btnDigest" style="margin:0 0 0 8px;padding:4px 12px;font-size:12px">run digest</button>
+      <button id="btnDigest" style="margin:0 0 0 8px;padding:4px 12px;font-size:12px">Run digest</button>
       <span id="awPill" class="pill" style="font-size:11px;margin-left:8px"></span>
     </h2>
     <div id="sumStrip" style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 10px;font-size:12px;color:var(--muted)"></div>
@@ -87,39 +110,47 @@
 
   <div class="card">
     <h2>Draft time entries
-      <button id="btnGenDrafts" style="margin:0;padding:4px 12px;font-size:12px">import from digest</button>
+      <button id="btnGenDrafts" style="margin:0;padding:4px 12px;font-size:12px">Import from digest</button>
       <button id="btnSuggest" style="margin:0;padding:4px 12px;font-size:12px" title="Optional AI pass: matches entries to tickets (uses your API key)">AI ticket match</button>
-      <button id="btnPostDrafts" style="margin:0;padding:4px 12px;font-size:12px;background:var(--good)">post approved</button>
+      <button id="btnAddManual" style="margin:0;padding:4px 12px;font-size:12px;background:#a78bfa" title="Add a blank entry to fill in by hand">Add manual entry</button>
+      <button id="btnPostDrafts" style="margin:0;padding:4px 12px;font-size:12px;background:var(--good)">Post approved</button>
     </h2>
     <div id="msg2" style="font-size:13px;min-height:16px;margin-bottom:6px"></div>
     <datalist id="ticketOptions"></datalist>
     <div id="draftList" style="font-size:13px"></div>
   </div>
+  </div><!-- /today pane -->
 
+  <div class="pane" data-pane="history">
   <div class="card">
     <h2>Posted entries (last 14 days)
-      <button id="btnPostedRefresh" style="margin:0;padding:4px 12px;font-size:12px">refresh</button>
+      <button id="btnPostedRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
     </h2>
     <div id="postedList" style="font-size:13px;line-height:1.7"></div>
   </div>
+  </div><!-- /history pane -->
 
+  <div class="pane" data-pane="tickets">
   <div class="card">
-    <h2>Open tickets <button id="btnRefresh" style="margin:0;padding:4px 12px;font-size:12px">refresh</button></h2>
+    <h2>Open tickets <button id="btnRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button></h2>
     <table id="ticketTable">
       <thead><tr><th>#</th><th>Client</th><th>Subject</th><th>Status</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
+  </div><!-- /tickets pane -->
 
+  <div class="pane" data-pane="settings">
   <div class="card">
     <h2>Claude / MCP integration</h2>
     <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
       Expose your activity data (read-only) to Claude Desktop, Cowork, or Claude Code.
     </div>
-    <button id="btnCopyMcpJson" style="margin:0;padding:4px 12px;font-size:12px">copy Claude Desktop config</button>
-    <button id="btnCopyMcpCmd" style="margin:0;padding:4px 12px;font-size:12px">copy Claude Code command</button>
+    <button id="btnCopyMcpJson" style="margin:0;padding:4px 12px;font-size:12px">Copy Claude Desktop config</button>
+    <button id="btnCopyMcpCmd" style="margin:0;padding:4px 12px;font-size:12px">Copy Claude Code command</button>
     <div id="mcpMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
   </div>
+  </div><!-- /settings pane (mcp) -->
 
 <script>
 const $ = id => document.getElementById(id);
@@ -228,7 +259,7 @@ async function loadDigest() {
 
 $('btnDigest').onclick = async () => {
   $('btnDigest').disabled = true;
-  $('btnDigest').textContent = 'running…';
+  $('btnDigest').textContent = 'Running…';
   try {
     let q = '/api/digest/run?day=' + selDay();
     if ($('timeFrom').value) q += '&start=' + $('timeFrom').value;
@@ -236,7 +267,7 @@ $('btnDigest').onclick = async () => {
     await api(q, {method:'POST'});
     await loadDigest();
   } catch (e) { setMsg('Digest failed: ' + e.message, false); }
-  finally { $('btnDigest').disabled = false; $('btnDigest').textContent = 'run digest'; }
+  finally { $('btnDigest').disabled = false; $('btnDigest').textContent = 'Run digest'; }
 };
 
 loadDigest();
@@ -281,12 +312,12 @@ function draftRow(d, i) {
       b.onclick = fn;
       return b;
     };
-    btns.appendChild(mk('save edits', 'var(--accent)', () => saveDraft(i)));
+    btns.appendChild(mk('Save edits', 'var(--accent)', () => saveDraft(i)));
     if (d.status !== 'approved')
-      btns.appendChild(mk('approve', 'var(--good)', () => draftAction(i, 'approve')));
+      btns.appendChild(mk('Approve', 'var(--good)', () => draftAction(i, 'approve')));
     if (d.status !== 'rejected')
-      btns.appendChild(mk('reject', 'var(--bad)', () => draftAction(i, 'reject')));
-    btns.appendChild(mk('split', '#a78bfa', () => splitDraft(i)));
+      btns.appendChild(mk('Reject', 'var(--bad)', () => draftAction(i, 'reject')));
+    btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
     div.appendChild(btns);
   }
   return div;
@@ -335,7 +366,7 @@ async function draftAction(i, action) {
 }
 
 $('btnGenDrafts').onclick = async () => {
-  $('btnGenDrafts').disabled = true; $('btnGenDrafts').textContent = 'thinking…';
+  $('btnGenDrafts').disabled = true; $('btnGenDrafts').textContent = 'Importing…';
   try {
     const r = await api('/api/drafts/generate?day=' + selDay(), {method:'POST'});
     if (r.error) setMsg2(r.error, false);
@@ -343,7 +374,7 @@ $('btnGenDrafts').onclick = async () => {
                  ' from the digest. Assign tickets (or leave blank for Quick Time), approve, post.', true);
     loadDrafts(); loadSummary();
   } catch (e) { setMsg2('Import failed: ' + e.message, false); }
-  finally { $('btnGenDrafts').disabled = false; $('btnGenDrafts').textContent = 'import from digest'; }
+  finally { $('btnGenDrafts').disabled = false; $('btnGenDrafts').textContent = 'Import from digest'; }
 };
 
 $('btnPostDrafts').onclick = async () => {
@@ -433,7 +464,7 @@ async function splitDraft(i) {
 
 // ---- AI ticket match (optional LLM pass) ----
 $('btnSuggest').onclick = async () => {
-  $('btnSuggest').disabled = true; $('btnSuggest').textContent = 'matching…';
+  $('btnSuggest').disabled = true; $('btnSuggest').textContent = 'Matching…';
   try {
     const r = await api('/api/drafts/suggest?day=' + selDay(), {method:'POST'});
     if (r.error) setMsg2(r.error, false);
@@ -488,6 +519,32 @@ $('btnCopyMcpJson').onclick = () => copyMcp('json');
 $('btnCopyMcpCmd').onclick = () => copyMcp('cmd');
 
 applyProviderUI();
+
+// ---- tab navigation ----
+function showTab(name) {
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.pane').forEach(p =>
+    p.classList.toggle('active', p.dataset.pane === name));
+  if (name === 'history') loadPosted();
+  if (name === 'tickets') $('btnRefresh').click();
+}
+document.querySelectorAll('nav button').forEach(b =>
+  b.onclick = () => showTab(b.dataset.tab));
+
+// First run: if Halo isn't configured yet, land on Settings.
+api('/api/status').then(s => {
+  if (!s.halo_configured) showTab('settings');
+}).catch(() => {});
+
+// ---- manual entry ----
+$('btnAddManual').onclick = async () => {
+  try {
+    await api('/api/drafts/add?day=' + selDay(), {method:'POST'});
+    setMsg2('Blank entry added — fill in times, note, and ticket, then approve.', true);
+    loadDrafts();
+  } catch (e) { setMsg2('Add failed: ' + e.message, false); }
+};
 </script>
 </body>
 </html>
