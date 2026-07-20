@@ -12,7 +12,28 @@ from mcp.server.fastmcp import FastMCP
 
 from timescribe import appconfig, history, activitywatch, digest as digest_mod
 
-mcp = FastMCP("timescribe-activity")
+INSTRUCTIONS = """How to interpret TimeScribe activity data (the user is an
+MSP technician; this data feeds client time tracking):
+
+- The browser `profile` field is authoritative for client attribution: work
+  in a client-named Edge profile belongs to that client.
+- Mine window titles for specifics -- they carry the real content. Outlook
+  titles = email subject + likely client; Teams titles = person or meeting;
+  document/editor titles = the deliverable being worked on. Prefer "Emailed
+  about the Contoso server outage" over "worked in Outlook".
+- Remote Desktop (mstsc) titles name the host being administered; time in an
+  RDP session is active work on that host, not idle time.
+- Inactivity periods are hard boundaries: never describe work as spanning
+  one, and treat them as breaks, not work.
+- Group continuous same-task activity; split when the task or client
+  changes. Never invent or pad activities -- if signals are unclear, say
+  what's observable ("browsed <domain>") and move on.
+- Ignore noise: lock screens, login/SSO redirects, sub-30-second focus blips.
+- get_activity_digest returns AI summaries the desktop app already produced;
+  when present, prefer them as the narrative backbone and use the raw tools
+  to fill gaps or answer detail questions."""
+
+mcp = FastMCP("timescribe-activity", instructions=INSTRUCTIONS)
 
 
 def _day_bounds(day: str):
@@ -98,6 +119,23 @@ def get_activity_digest(day: str = "") -> str:
     """
     d, _, _ = _day_bounds(day)
     return json.dumps({"day": d.isoformat(), "entries": digest_mod.load_digest(d)})
+
+
+@mcp.prompt()
+def summarize_day(day: str = "") -> str:
+    """Produce a digest-style summary of a day's activity, using the same
+    rules as the TimeScribe desktop app's AI digest."""
+    target = day or date_cls.today().isoformat()
+    return (
+        f"Summarize my activity for {target} using the timescribe-activity "
+        "tools (get_browser_history, get_window_activity, "
+        "get_inactivity_periods; check get_activity_digest first and build "
+        "on it if entries exist).\n\n"
+        "Follow these rules when interpreting the data:\n\n"
+        + digest_mod.SYSTEM_PROMPT.split("Return STRICT JSON")[0]
+        + "\nPresent the result as chronological time-ranged entries in "
+        "plain text (no JSON needed)."
+    )
 
 
 def main():
