@@ -121,6 +121,20 @@ def get_activity_digest(day: str = "") -> str:
     return json.dumps({"day": d.isoformat(), "entries": digest_mod.load_digest(d)})
 
 
+@mcp.tool()
+def get_parsing_guide() -> str:
+    """How to correctly interpret data from the other timescribe-activity
+    tools (client attribution, window-title mining, inactivity rules).
+    Call this once before analyzing or summarizing activity data."""
+    return INSTRUCTIONS
+
+
+@mcp.resource("guide://timescribe/parsing")
+def parsing_guide_resource() -> str:
+    """Interpretation guide for TimeScribe activity data."""
+    return INSTRUCTIONS
+
+
 @mcp.prompt()
 def summarize_day(day: str = "") -> str:
     """Produce a digest-style summary of a day's activity, using the same
