@@ -56,6 +56,19 @@ def _call_openai(system_prompt, messages, model, temperature, max_tokens) -> str
     return resp.choices[0].message.content or ""
 
 
+def _strip_fences(text: str) -> str:
+    """Models often wrap JSON in ```json ... ``` fences despite instructions.
+    Strip a leading/trailing fence pair if present."""
+    t = text.strip()
+    if t.startswith("```"):
+        first_nl = t.find("\n")
+        if first_nl != -1:
+            t = t[first_nl + 1:]
+        if t.rstrip().endswith("```"):
+            t = t.rstrip()[:-3]
+    return t.strip()
+
+
 def generate(*, system_prompt: str, user_prompt: str,
              model: Optional[str] = None, temperature: float = 0.3,
              max_tokens: int = 4096, schema: Optional[Type[BaseModel]] = None,
@@ -71,7 +84,7 @@ def generate(*, system_prompt: str, user_prompt: str,
             if schema is None:
                 return text
             try:
-                return schema.model_validate_json(text)
+                return schema.model_validate_json(_strip_fences(text))
             except (json.JSONDecodeError, ValidationError) as ve:
                 if attempt < retries:
                     messages.append({"role": "assistant", "content": text})
