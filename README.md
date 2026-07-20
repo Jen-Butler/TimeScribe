@@ -36,22 +36,46 @@ AFK detection ┘        │
                        └─→ MCP server ─→ Claude Desktop / Cowork / Claude Code
 ```
 
-## Install (end user)
+## Install
 
-1. Download `TimeScribe-Setup-<version>.exe` from the
-   [Releases page](https://github.com/Jen-Butler/timescribe/releases) and
-   run it — installs per-user (no admin),
-   optional start-at-login, bundles ActivityWatch so there's nothing else to
-   set up.
-2. First launch opens the dashboard. Fill in the **Setup** card:
+### Option A — from source (recommended)
+
+Release binaries are not yet code-signed, so Windows SmartScreen will fight
+you on downloads. Building from source sidesteps that entirely and takes one
+command:
+
+```powershell
+git clone https://github.com/Jen-Butler/timescribe.git
+cd timescribe
+powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+
+`setup.ps1` checks for Python 3.10+ (installs it via winget if missing),
+installs dependencies, downloads the ActivityWatch portable bundle, creates
+Start Menu + run-at-login shortcuts, and launches the app. Flags:
+`-SkipAW` (ActivityWatch already installed), `-NoStartup` (no login
+shortcut), `-BuildExe` (also freeze a standalone exe), `-Uninstall`
+(clean removal, optionally including all data and credentials).
+
+### Option B — installer
+
+Download `TimeScribe-Setup-<version>.exe` from the
+[Releases page](https://github.com/Jen-Butler/timescribe/releases) and run
+it — installs per-user (no admin), optional start-at-login, bundles
+ActivityWatch. Until releases are code-signed, expect a SmartScreen warning:
+⋯ → Keep → Show more → Keep anyway.
+
+### First-run setup (either option)
+
+1. First launch opens the dashboard. Fill in the **Setup** card:
    - **HaloPSA URL** and **OAuth Client ID** (see *Halo OAuth app* below)
    - **AI provider**: Anthropic, OpenAI, or **MCP only** (no API key —
      in-app AI disabled, activity data still available to Claude via MCP)
    - API key for the chosen provider (stored in Windows Credential Manager,
      never on disk)
-3. Click **Connect to Halo** — sign in with your normal Halo credentials in
+2. Click **Connect to Halo** — sign in with your normal Halo credentials in
    the browser window that opens. The app acts as *you* from then on.
-4. Optional: drag `TimeScribeActivity-<version>.mcpb` into
+3. Optional: drag `TimeScribeActivity-<version>.mcpb` into
    Claude Desktop → Settings → Extensions to chat with your activity data.
 
 ### Registering the Halo OAuth app (once per Halo instance, admin)
@@ -79,7 +103,12 @@ to protect because the app is a public PKCE client.
 
 ## Uninstall
 
-Windows Settings → Apps → TimeScribe → Uninstall (or the uninstaller in the
+**Source install:** `powershell -File setup.ps1 -Uninstall` — removes
+shortcuts, stops the app, uninstalls the package, and offers to purge all
+data and credentials. Then delete the cloned folder.
+
+**Installer:** Windows Settings → Apps → TimeScribe → Uninstall (or the
+uninstaller in the
 install folder). The uninstaller stops the app and any bundled ActivityWatch
 processes, removes all installed files and shortcuts, and then **asks whether
 to also delete your data** — settings, activity digests, draft time entries,
