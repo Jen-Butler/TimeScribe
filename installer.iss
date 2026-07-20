@@ -1,11 +1,11 @@
 [Setup]
 AppName=TimeScribe
-AppVersion=0.1.0
+AppVersion=0.1.1
 AppPublisher=Rising Tide Group
 DefaultDirName={autopf}\TimeScribe
 DefaultGroupName=TimeScribe
 UninstallDisplayIcon={app}\TimeScribe.exe
-OutputBaseFilename=TimeScribe-Setup-0.1.0
+OutputBaseFilename=TimeScribe-Setup-0.1.1
 OutputDir=installer_out
 Compression=lzma2
 SolidCompression=yes

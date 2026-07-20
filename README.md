@@ -187,6 +187,10 @@ folder exclusion while developing. Code-sign before distributing broadly.
 - Remote ActivityWatch hosts (multi-machine capture) — config key exists
 - Week view and richer reporting in the dashboard
 
+## License
+
+MIT — see [LICENSE](LICENSE).
+
 ## Acknowledgements
 
 - [ActivityWatch](https://activitywatch.net) (MPL-2.0) — bundled unmodified

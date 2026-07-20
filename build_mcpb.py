@@ -15,7 +15,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 HERE = Path(__file__).parent
 
 MANIFEST = {

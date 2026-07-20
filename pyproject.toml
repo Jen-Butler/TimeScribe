@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timescribe"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local desktop app: browser digest + activity capture + time entries to your PSA"
 requires-python = ">=3.10"
 dependencies = [
