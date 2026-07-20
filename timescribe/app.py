@@ -45,10 +45,11 @@ def _run_server():
 
 
 def _setup_frozen_logging():
-    """When frozen (PyInstaller --noconsole), stdout/stderr are None.
-    Redirect them to a rotating log file in the app data dir."""
+    """With no console attached (PyInstaller --noconsole OR pythonw.exe),
+    stdout/stderr are None and the first print() would crash the process.
+    Redirect them to a log file in the app data dir."""
     import sys
-    if getattr(sys, "frozen", False):
+    if getattr(sys, "frozen", False) or sys.stdout is None or sys.stderr is None:
         from pathlib import Path
         from platformdirs import user_data_dir
         log_dir = Path(user_data_dir("timescribe")) / "logs"
