@@ -11,6 +11,7 @@ launch anything -- we just report reachability.
 from __future__ import annotations
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -20,6 +21,7 @@ import httpx
 from timescribe import appconfig
 
 _launched_proc: Optional[subprocess.Popen] = None
+_launch_lock = threading.Lock()
 
 
 def aw_base_url() -> str:
@@ -73,21 +75,33 @@ def ensure_running(wait_seconds: int = 30) -> dict:
     if not _is_local(url):
         return {"running": False, "launched": False,
                 "source": f"remote host {url} unreachable"}
-    exe = find_aw_executable()
-    if exe is None:
-        return {"running": False, "launched": False, "source": "no aw-qt.exe found"}
-    try:
-        _launched_proc = subprocess.Popen(
-            [str(exe)], cwd=str(exe.parent),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except OSError as exc:
-        return {"running": False, "launched": False, "source": f"launch failed: {exc}"}
-    deadline = time.time() + wait_seconds
-    while time.time() < deadline:
+    # Single-flight: only one thread may launch/wait at a time. Concurrent
+    # callers block here, then re-check -- launching two aw-qt instances at
+    # once makes them race to create their config dirs (FileExistsError
+    # popup on first run, ActivityWatch/aw-core TOCTOU bug).
+    with _launch_lock:
         if is_running():
-            print(f"[aw_manager] launched {exe} and server is up")
-            return {"running": True, "launched": True, "source": str(exe)}
-        time.sleep(1.5)
-    return {"running": False, "launched": True,
-            "source": f"launched {exe} but server not up after {wait_seconds}s"}
+            return {"running": True, "launched": False, "source": "already-running"}
+        if _launched_proc is not None and _launched_proc.poll() is None:
+            # We already launched aw-qt and it's still alive -- it may just
+            # need more time to bring the server up. Don't launch another.
+            return {"running": False, "launched": False,
+                    "source": "previous launch still starting"}
+        exe = find_aw_executable()
+        if exe is None:
+            return {"running": False, "launched": False, "source": "no aw-qt.exe found"}
+        try:
+            _launched_proc = subprocess.Popen(
+                [str(exe)], cwd=str(exe.parent),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except OSError as exc:
+            return {"running": False, "launched": False, "source": f"launch failed: {exc}"}
+        deadline = time.time() + wait_seconds
+        while time.time() < deadline:
+            if is_running():
+                print(f"[aw_manager] launched {exe} and server is up")
+                return {"running": True, "launched": True, "source": str(exe)}
+            time.sleep(1.5)
+        return {"running": False, "launched": True,
+                "source": f"launched {exe} but server not up after {wait_seconds}s"}
