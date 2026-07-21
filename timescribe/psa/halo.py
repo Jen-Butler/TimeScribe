@@ -103,6 +103,7 @@ class HaloPSAAdapter(PSAAdapter):
                 self._clear_refresh_token()
                 self._access_token = None
 
+        from timescribe import appconfig as _appconfig
         verifier, challenge = generate_pkce_pair()
         state = generate_state()
         url = build_authorize_url(
@@ -112,6 +113,7 @@ class HaloPSAAdapter(PSAAdapter):
             code_challenge=challenge,
             state=state,
             scope="all",
+            tenant=_appconfig.load().get("halo_tenant", ""),
         )
         print(f"[halo] Opening browser for Halo authentication...")
         print(f"[halo] If the browser doesn't open, paste this URL: {url}")

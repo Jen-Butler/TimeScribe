@@ -55,7 +55,8 @@ def build_authorize_url(*,
                         redirect_uri: str,
                         code_challenge: str,
                         state: str,
-                        scope: str = "all") -> str:
+                        scope: str = "all",
+                        tenant: str = "") -> str:
     """Construct the URL to open in the user's browser."""
     params = {
         "response_type":  "code",
@@ -66,6 +67,8 @@ def build_authorize_url(*,
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
     }
+    if tenant:
+        params["tenant"] = tenant
     return authorize_endpoint + "?" + urllib.parse.urlencode(params)
 
 
