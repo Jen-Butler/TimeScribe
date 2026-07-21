@@ -212,18 +212,52 @@ class HaloPSAAdapter(PSAAdapter):
         return out
 
     def create_time_entry(self, entry: TimeEntry) -> str:
-        """POST an appointment. With ticket_id -> attached to that ticket.
-        Without -> a standalone 'Quick Time' appointment.
+        """Create a real Halo time entry: an Action on the ticket
+        (POST /Actions) with timetaken + chargerate. This is what shows in
+        the timesheet and billing -- an /Appointment is only a calendar
+        item and does NOT count as logged time.
 
-        Halo requires an agents[] list on every appointment ("Please select
-        at least one Agent"), so we always attach the OAuth'd agent.
+        Halo quirk: Action datetimes are stored as UTC and displayed in the
+        agent's local timezone, so we convert the local completion time to
+        UTC before sending. timetaken is decimal hours; chargerate goes as
+        a string; the body is an array even for a single action.
+
+        Entries without a ticket can't be Actions (ticket_id is required),
+        so those still go to the calendar as a 'Quick Time' appointment.
         """
+        from datetime import timezone as _tz
+
+        if not entry.ticket_id:
+            return self._create_quick_time_appointment(entry)
+
+        hours = round((entry.end_local - entry.start_local).total_seconds() / 3600, 4)
+        end_utc = entry.end_local.astimezone(_tz.utc)   # naive = assume local tz
+        item = {
+            "ticket_id": str(entry.ticket_id),
+            "datetime": end_utc.strftime("%Y-%m-%dT%H:%M:%S.000"),
+            "timetaken": hours,
+            "note_html": f"<p>{entry.note}</p>",
+            "outcome": "Note",
+        }
+        if entry.charge_rate is not None:
+            item["chargerate"] = str(entry.charge_rate)
+        resp = self._api_post("Actions", [item])
+        rec = resp[0] if isinstance(resp, list) and resp else resp
+        return str((rec or {}).get("id") or "")
+
+    def _create_quick_time_appointment(self, entry: TimeEntry) -> str:
+        """Fallback for entries with no ticket: a calendar appointment.
+        Halo requires an agents[] list on every appointment ("Please select
+        at least one Agent"), so we always attach the OAuth'd agent."""
         agent = self.get_current_agent()
         agent_id = int(agent.get("id"))
         agent_name = agent.get("name", "")
-
+        d = entry.start_local
+        hour12 = d.hour % 12 or 12
+        ampm = "AM" if d.hour < 12 else "PM"
         item = {
             "id": -1,
+            "ticket_id": -1,
             "start_date": entry.start_local.strftime("%Y-%m-%dT%H:%M:%S.000"),
             "end_date":   entry.end_local.strftime("%Y-%m-%dT%H:%M:%S.000"),
             "agent_id":   agent_id,
@@ -232,19 +266,9 @@ class HaloPSAAdapter(PSAAdapter):
             "event_type": "a",
             "complete_status": -1,
             "is_task": False,
-            "charge_rate": entry.charge_rate or 0,
-            "billable": entry.billable,
+            "subject": (f"Quick Time - {agent_name} - "
+                        f"{d.month}/{d.day}/{d.year} {hour12}:{d.minute:02d} {ampm}"),
         }
-        if entry.ticket_id:
-            item["ticket_id"] = entry.ticket_id
-            item["subject"] = entry.note[:80]
-        else:
-            item["ticket_id"] = -1
-            d = entry.start_local
-            hour12 = d.hour % 12 or 12
-            ampm = "AM" if d.hour < 12 else "PM"
-            item["subject"] = (f"Quick Time - {agent_name} - "
-                               f"{d.month}/{d.day}/{d.year} {hour12}:{d.minute:02d} {ampm}")
         resp = self._api_post("Appointment", [item])
         return str(resp.get("id") or "")
 
