@@ -68,6 +68,30 @@ class _Tee:
             except Exception:
                 pass
 
+    # Libraries (uvicorn, click, colorama) probe these on sys.stdout.
+    def isatty(self):
+        return bool(self._console is not None and self._console.isatty())
+
+    def writable(self):
+        return True
+
+    def readable(self):
+        return False
+
+    @property
+    def encoding(self):
+        return getattr(self._log, "encoding", "utf-8")
+
+    def fileno(self):
+        # Only meaningful when a real console exists; the log file's fd
+        # is the safest fallback for libs that insist on one.
+        if self._console is not None:
+            try:
+                return self._console.fileno()
+            except Exception:
+                pass
+        return self._log.fileno()
+
 
 def _setup_frozen_logging():
     """ALWAYS write stdout/stderr to app.log. With no console attached
