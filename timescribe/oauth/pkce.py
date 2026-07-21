@@ -155,8 +155,24 @@ def exchange_code_for_tokens(*,
     resp = httpx.post(token_endpoint, data=data,
                       headers={"Content-Type": "application/x-www-form-urlencoded"},
                       timeout=30)
-    resp.raise_for_status()
+    _raise_with_body(resp)
     return resp.json()
+
+
+def _raise_with_body(resp: "httpx.Response") -> None:
+    """raise_for_status, but include the OAuth error body -- a bare
+    '400 Bad Request' hides the actual reason (invalid_client,
+    invalid_grant, redirect_uri mismatch...)."""
+    if resp.status_code < 400:
+        return
+    detail = ""
+    try:
+        j = resp.json()
+        detail = j.get("error_description") or j.get("error") or ""
+    except Exception:
+        detail = (resp.text or "")[:300]
+    raise RuntimeError(
+        f"Token endpoint returned {resp.status_code}: {detail or 'no detail in response'}")
 
 
 def refresh_access_token(*,
@@ -172,5 +188,5 @@ def refresh_access_token(*,
     resp = httpx.post(token_endpoint, data=data,
                       headers={"Content-Type": "application/x-www-form-urlencoded"},
                       timeout=30)
-    resp.raise_for_status()
+    _raise_with_body(resp)
     return resp.json()

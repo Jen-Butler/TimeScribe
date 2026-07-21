@@ -37,7 +37,7 @@ def _is_local(url: str) -> bool:
 def is_running(timeout: float = 2.0) -> bool:
     try:
         r = httpx.get(f"{aw_base_url()}/api/0/info", timeout=timeout,
-                      follow_redirects=True)
+                      follow_redirects=True, trust_env=False)
         return r.status_code == 200
     except Exception:
         return False

@@ -12,8 +12,10 @@ def _aw_base() -> str:
 
 
 def _get(path: str, params=None):
+    # trust_env=False: never route localhost AW calls through a system
+    # proxy -- corporate proxies break 127.0.0.1 and AW looks "down".
     resp = httpx.get(f"{_aw_base()}/{path.lstrip('/')}", params=params,
-                     timeout=10, follow_redirects=True)
+                     timeout=10, follow_redirects=True, trust_env=False)
     resp.raise_for_status()
     return resp.json()
 
