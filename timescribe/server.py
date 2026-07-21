@@ -390,7 +390,11 @@ def drafts_repost(body: DraftAction, day: str = None):
         end_local=_dt.combine(target, _dt.strptime(item["end_time"], "%H:%M").time()),
         note=item["note"],
     )
-    posted_id = a.create_time_entry(entry)
+    try:
+        posted_id = a.create_time_entry(entry)
+    except Exception as exc:
+        # Pass Halo's actual complaint to the UI instead of a bare 500.
+        raise HTTPException(502, str(exc))
     _drafts.set_status(target, body.index, "posted", posted_id=posted_id)
     return {"ok": True, "posted_id": posted_id}
 

@@ -167,11 +167,18 @@ class HaloPSAAdapter(PSAAdapter):
         return resp.json()
 
     def _api_post(self, path: str, body: list | dict) -> dict:
+        import json as _json
         token = self._ensure_access_token()
         url = urljoin(self.api_base + "/", path.lstrip("/"))
+        print(f"[halo] POST {path}: {_json.dumps(body)[:800]}")
         resp = httpx.post(url, headers={"Authorization": f"Bearer {token}"},
                           json=body, timeout=30)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            detail = (resp.text or "")[:500]
+            print(f"[halo] POST {path} -> {resp.status_code}: {detail}")
+            raise RuntimeError(f"Halo {path} returned {resp.status_code}: "
+                               f"{detail or 'no detail'}")
+        print(f"[halo] POST {path} -> {resp.status_code}")
         return resp.json() if resp.content else {}
 
     # --- Concrete implementations (stubs -- filled in Phase 2) ---

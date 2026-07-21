@@ -176,8 +176,12 @@ const api = (path, opts) => fetch(path, opts).then(async r => {
 });
 
 function setMsg(text, ok) {
-  $('msg').textContent = text;
-  $('msg').className = ok ? 'ok-text' : 'err-text';
+  // Mirror to both message slots (Settings card + Today drafts card) so
+  // feedback is visible from whichever tab triggered the action.
+  for (const id of ['msg', 'msg2']) {
+    const el = $(id);
+    if (el) { el.textContent = text; el.className = ok ? 'ok-text' : 'err-text'; }
+  }
 }
 
 async function refreshStatus() {
