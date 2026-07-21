@@ -148,11 +148,22 @@ class HaloPSAAdapter(PSAAdapter):
         refresh = self._load_refresh_token()
         if not refresh:
             raise RuntimeError("No stored refresh token; call connect() first")
-        tokens = refresh_access_token(
-            token_endpoint=self.token_endpoint,
-            client_id=self.client_id,
-            refresh_token=refresh,
-        )
+        try:
+            tokens = refresh_access_token(
+                token_endpoint=self.token_endpoint,
+                client_id=self.client_id,
+                refresh_token=refresh,
+            )
+        except Exception as exc:
+            # Refresh token revoked/expired (e.g. the Halo application's
+            # permissions were changed, which invalidates all its tokens).
+            # Clear it so the UI shows "not connected" instead of endless
+            # background failures.
+            print(f"[halo] refresh token rejected ({exc}); clearing stored token")
+            self._clear_refresh_token()
+            self._access_token = None
+            raise RuntimeError(
+                "Halo session expired - reconnect via Settings > Connect to Halo") from exc
         self._access_token = tokens.get("access_token")
         self._access_token_expires_at = time.time() + int(tokens.get("expires_in", 3600))
         # Halo may or may not rotate the refresh_token; save if present
