@@ -341,8 +341,23 @@ function draftRow(d, i) {
   } else {
     btns.appendChild(mk('Repost', 'var(--accent)', () => repostDraft(i)));
   }
+  btns.appendChild(mk('Delete', '#64748b', () => deleteDraft(i, d.status)));
   div.appendChild(btns);
   return div;
+}
+
+async function deleteDraft(i, status) {
+  const warn = status === 'posted'
+    ? 'Remove this entry from the list? The copy already in Halo is NOT deleted.'
+    : 'Remove this entry from the list?';
+  if (!confirm(warn)) return;
+  try {
+    await api('/api/drafts/delete?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index: i, action: 'delete'})});
+    setMsg('Entry removed.', true);
+    loadDrafts(); loadSummary();
+  } catch (e) { setMsg('Delete failed: ' + e.message, false); }
 }
 
 async function repostDraft(i) {

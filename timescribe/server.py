@@ -300,6 +300,19 @@ def drafts_action(body: DraftAction, day: str = None):
     return _drafts.set_status(target, body.index, status)
 
 
+@app.post("/api/drafts/delete")
+def drafts_delete(body: DraftAction, day: str = None):
+    """Remove an entry from the local list. Does NOT touch anything
+    already created in the PSA -- delete that in Halo if needed."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    if not (0 <= body.index < len(items)):
+        raise HTTPException(404, "draft index out of range")
+    removed = items.pop(body.index)
+    _drafts.save(target, items)
+    return {"ok": True, "removed": removed.get("note", "")[:60], "count": len(items)}
+
+
 class DraftUpdate(BaseModel):
     index: int
     ticket_id: Optional[int] = None      # None/blank -> Quick Time
