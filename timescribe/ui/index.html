@@ -303,24 +303,37 @@ function draftRow(d, i) {
       style="width:100%;margin:4px 0;padding:6px 8px;border-radius:6px;border:1px solid #334155;
              background:#0f172a;color:var(--text);font-size:13px;font-family:inherit">${d.note}</textarea>`;
 
+  const btns = document.createElement('div');
+  const mk = (label, bg, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = `margin:2px 6px 0 0;padding:3px 12px;font-size:12px;background:${bg}`;
+    b.onclick = fn;
+    return b;
+  };
   if (editable) {
-    const btns = document.createElement('div');
-    const mk = (label, bg, fn) => {
-      const b = document.createElement('button');
-      b.textContent = label;
-      b.style.cssText = `margin:2px 6px 0 0;padding:3px 12px;font-size:12px;background:${bg}`;
-      b.onclick = fn;
-      return b;
-    };
     btns.appendChild(mk('Save edits', 'var(--accent)', () => saveDraft(i)));
     if (d.status !== 'approved')
       btns.appendChild(mk('Approve', 'var(--good)', () => draftAction(i, 'approve')));
     if (d.status !== 'rejected')
       btns.appendChild(mk('Reject', 'var(--bad)', () => draftAction(i, 'reject')));
     btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
-    div.appendChild(btns);
+  } else {
+    btns.appendChild(mk('Repost', 'var(--accent)', () => repostDraft(i)));
   }
+  div.appendChild(btns);
   return div;
+}
+
+async function repostDraft(i) {
+  if (!confirm('Post this entry to Halo again? The earlier copy is not removed automatically.')) return;
+  try {
+    const r = await api('/api/drafts/repost?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index: i, action: 'repost'})});
+    setMsg('Re-posted (new Halo id ' + r.posted_id + ').', true);
+    loadDrafts(); loadSummary();
+  } catch (e) { setMsg('Repost failed: ' + e.message, false); }
 }
 
 async function saveDraft(i) {

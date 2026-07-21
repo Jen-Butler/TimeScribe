@@ -368,6 +368,33 @@ def drafts_post(day: str = None):
     return {"results": results}
 
 
+@app.post("/api/drafts/repost")
+def drafts_repost(body: DraftAction, day: str = None):
+    """Re-post a single already-posted entry to the PSA (e.g. after the
+    earlier post landed in the wrong place). Creates a NEW entry in the
+    PSA and records its id; it does not delete the previous one."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    if not (0 <= body.index < len(items)):
+        raise HTTPException(404, "draft index out of range")
+    item = items[body.index]
+    if item.get("status") != "posted":
+        raise HTTPException(400, "only posted entries can be re-posted")
+    tid = item.get("ticket_id")
+    entry = _TimeEntry(
+        ticket_id=int(tid) if tid else None,
+        start_local=_dt.combine(target, _dt.strptime(item["start_time"], "%H:%M").time()),
+        end_local=_dt.combine(target, _dt.strptime(item["end_time"], "%H:%M").time()),
+        note=item["note"],
+    )
+    posted_id = a.create_time_entry(entry)
+    _drafts.set_status(target, body.index, "posted", posted_id=posted_id)
+    return {"ok": True, "posted_id": posted_id}
+
+
 # ---------- MCP config helper ----------
 
 @app.get("/api/mcp/config")
