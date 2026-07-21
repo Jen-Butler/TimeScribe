@@ -44,21 +44,46 @@ def _run_server():
     uvicorn.run(fastapi_app, host="127.0.0.1", port=port, log_level="warning")
 
 
+class _Tee:
+    """Write to the log file and (if present) the original console stream,
+    so app.log is complete no matter how the app was launched."""
+    def __init__(self, log_file, console):
+        self._log = log_file
+        self._console = console
+
+    def write(self, s):
+        self._log.write(s)
+        if self._console is not None:
+            try:
+                self._console.write(s)
+            except Exception:
+                pass
+        return len(s)
+
+    def flush(self):
+        self._log.flush()
+        if self._console is not None:
+            try:
+                self._console.flush()
+            except Exception:
+                pass
+
+
 def _setup_frozen_logging():
-    """With no console attached (PyInstaller --noconsole OR pythonw.exe),
-    stdout/stderr are None and the first print() would crash the process.
-    Redirect them to a log file in the app data dir."""
+    """ALWAYS write stdout/stderr to app.log. With no console attached
+    (PyInstaller --noconsole OR pythonw.exe) the streams are None and the
+    first print() would otherwise crash; with a console we tee to both so
+    the Logs view in Settings never has blind spots."""
     import sys
-    if getattr(sys, "frozen", False) or sys.stdout is None or sys.stderr is None:
-        from pathlib import Path
-        from platformdirs import user_data_dir
-        log_dir = Path(user_data_dir("timescribe")) / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = open(log_dir / "app.log", "a", encoding="utf-8", buffering=1)
-        sys.stdout = log_file
-        sys.stderr = log_file
-        from datetime import datetime
-        print(f"\n===== app start {datetime.now().isoformat(timespec='seconds')} =====")
+    from pathlib import Path
+    from platformdirs import user_data_dir
+    log_dir = Path(user_data_dir("timescribe")) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = open(log_dir / "app.log", "a", encoding="utf-8", buffering=1)
+    sys.stdout = _Tee(log_file, sys.__stdout__)
+    sys.stderr = _Tee(log_file, sys.__stderr__)
+    from datetime import datetime
+    print(f"\n===== app start {datetime.now().isoformat(timespec='seconds')} =====")
 
 
 def main():

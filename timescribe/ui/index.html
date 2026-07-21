@@ -91,6 +91,22 @@
     <button id="btnConnect">Connect to Halo</button>
     <div id="msg"></div>
   </div>
+
+  <div class="card">
+    <h2>Logs
+      <button id="btnLogsRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
+      <select id="logLines" style="width:auto;padding:4px 8px;font-size:12px;margin-left:8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text)">
+        <option value="100">last 100</option>
+        <option value="200" selected>last 200</option>
+        <option value="500">last 500</option>
+        <option value="2000">last 2000</option>
+      </select>
+    </h2>
+    <div id="logPath" style="color:var(--muted);font-size:11px;margin-bottom:6px"></div>
+    <pre id="logView" style="max-height:420px;overflow:auto;background:#0f172a;border:1px solid #334155;
+         border-radius:6px;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;
+         color:var(--text)">Click refresh to load.</pre>
+  </div>
   </div><!-- /settings pane (setup) -->
 
   <div class="pane active" data-pane="today">
@@ -423,6 +439,23 @@ loadSched();
 setInterval(loadSched, 60000);
 
 function fmtH(mins) { return (mins / 60).toFixed(1) + 'h'; }
+
+async function loadLogs() {
+  const btn = $('btnLogsRefresh');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/logs?lines=' + $('logLines').value);
+    $('logPath').textContent = r.path;
+    $('logView').textContent = r.lines.join('\n') || '(empty)';
+    $('logView').scrollTop = $('logView').scrollHeight;
+  } catch (e) {
+    $('logView').textContent = 'Could not load logs: ' + e.message +
+      '\n(If this says "Failed to fetch", the TimeScribe app itself is not running — ' +
+      'relaunch it from the Start Menu.)';
+  } finally { btn.disabled = false; }
+}
+$('btnLogsRefresh').onclick = loadLogs;
+$('logLines').onchange = loadLogs;
 
 async function loadSummary() {
   try {

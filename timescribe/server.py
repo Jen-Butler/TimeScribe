@@ -395,6 +395,25 @@ def drafts_repost(body: DraftAction, day: str = None):
     return {"ok": True, "posted_id": posted_id}
 
 
+# ---------- Logs ----------
+
+@app.get("/api/logs")
+def get_logs(lines: int = 200):
+    """Tail of app.log for the Settings > Logs view."""
+    from pathlib import Path
+    from platformdirs import user_data_dir
+    log_path = Path(user_data_dir("timescribe")) / "logs" / "app.log"
+    if not log_path.exists():
+        return {"path": str(log_path), "lines": ["(no log file yet)"]}
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+    except OSError as exc:
+        return {"path": str(log_path), "lines": [f"(could not read log: {exc})"]}
+    lines = max(10, min(lines, 2000))
+    return {"path": str(log_path), "lines": [l.rstrip("\n") for l in all_lines[-lines:]]}
+
+
 # ---------- MCP config helper ----------
 
 @app.get("/api/mcp/config")
