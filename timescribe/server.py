@@ -308,6 +308,8 @@ def drafts_delete(body: DraftAction, day: str = None):
     items = _drafts.load(target)
     if not (0 <= body.index < len(items)):
         raise HTTPException(404, "draft index out of range")
+    if items[body.index].get("status") == "posted":
+        raise HTTPException(400, "posted entries can't be deleted; they live in the Posted tab")
     removed = items.pop(body.index)
     _drafts.save(target, items)
     return {"ok": True, "removed": removed.get("note", "")[:60], "count": len(items)}

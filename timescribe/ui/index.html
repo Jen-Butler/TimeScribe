@@ -133,7 +133,12 @@
     </h2>
     <div id="msg2" style="font-size:13px;min-height:16px;margin-bottom:6px"></div>
     <datalist id="ticketOptions"></datalist>
+    <div style="display:flex;gap:4px;margin-bottom:8px">
+      <button id="subDrafts" class="subtab active-subtab" style="margin:0;padding:4px 14px;font-size:12px">Drafts</button>
+      <button id="subPosted" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:#334155">Posted</button>
+    </div>
     <div id="draftList" style="font-size:13px"></div>
+    <div id="postedTodayList" style="font-size:13px;display:none"></div>
   </div>
   </div><!-- /today pane -->
 
@@ -338,19 +343,17 @@ function draftRow(d, i) {
     if (d.status !== 'rejected')
       btns.appendChild(mk('Reject', 'var(--bad)', () => draftAction(i, 'reject')));
     btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
+    btns.appendChild(mk('Delete', '#64748b', () => deleteDraft(i)));
   } else {
+    // Posted entries live in the Posted sub-tab: repost only, no delete.
     btns.appendChild(mk('Repost', 'var(--accent)', () => repostDraft(i)));
   }
-  btns.appendChild(mk('Delete', '#64748b', () => deleteDraft(i, d.status)));
   div.appendChild(btns);
   return div;
 }
 
-async function deleteDraft(i, status) {
-  const warn = status === 'posted'
-    ? 'Remove this entry from the list? The copy already in Halo is NOT deleted.'
-    : 'Remove this entry from the list?';
-  if (!confirm(warn)) return;
+async function deleteDraft(i) {
+  if (!confirm('Remove this entry from the list?')) return;
   try {
     await api('/api/drafts/delete?day=' + selDay(), {method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -388,19 +391,39 @@ async function saveDraft(i) {
   } catch (e) { setMsg('Update failed: ' + e.message, false); }
 }
 
+function showSubTab(which) {
+  $('draftList').style.display = which === 'drafts' ? '' : 'none';
+  $('postedTodayList').style.display = which === 'posted' ? '' : 'none';
+  $('subDrafts').style.background = which === 'drafts' ? 'var(--accent)' : '#334155';
+  $('subPosted').style.background = which === 'posted' ? 'var(--accent)' : '#334155';
+}
+$('subDrafts').onclick = () => showSubTab('drafts');
+$('subPosted').onclick = () => showSubTab('posted');
+
 async function loadDrafts() {
   try {
     const r = await api('/api/drafts?day=' + selDay());
+    const active = r.drafts.map((d, i) => [d, i]).filter(([d]) => d.status !== 'posted');
+    const posted = r.drafts.map((d, i) => [d, i]).filter(([d]) => d.status === 'posted');
+
     const el = $('draftList');
-    el.innerHTML = r.drafts.length ? '' :
+    el.innerHTML = active.length ? '' :
       '<span style="color:var(--muted)">No drafts. Run the digest, then click generate.</span>';
-    // Display order: actionable first (draft > approved > rejected > posted),
+    // Display order: actionable first (draft > approved > rejected),
     // then by confidence desc. Original index preserved for actions.
-    const order = {draft: 0, approved: 1, rejected: 2, posted: 3};
-    const rows = r.drafts.map((d, i) => [d, i]).sort((a, b) =>
+    const order = {draft: 0, approved: 1, rejected: 2};
+    active.sort((a, b) =>
       (order[a[0].status] ?? 9) - (order[b[0].status] ?? 9)
       || (b[0].confidence || 0) - (a[0].confidence || 0));
-    rows.forEach(([d, i]) => el.appendChild(draftRow(d, i)));
+    active.forEach(([d, i]) => el.appendChild(draftRow(d, i)));
+
+    const pl = $('postedTodayList');
+    pl.innerHTML = posted.length ? '' :
+      '<span style="color:var(--muted)">Nothing posted yet today.</span>';
+    posted.forEach(([d, i]) => pl.appendChild(draftRow(d, i)));
+
+    $('subDrafts').textContent = `Drafts (${active.length})`;
+    $('subPosted').textContent = `Posted (${posted.length})`;
   } catch (e) { /* ignore */ }
 }
 
