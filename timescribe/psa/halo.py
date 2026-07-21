@@ -92,8 +92,16 @@ class HaloPSAAdapter(PSAAdapter):
     def connect(self) -> None:
         """Full OAuth PKCE flow. Opens the user's browser, waits for callback."""
         if self.is_authenticated():
-            self._ensure_access_token()
-            return
+            try:
+                self._ensure_access_token()
+                return
+            except Exception as exc:
+                # Stored refresh token is stale/revoked (Halo rotates them,
+                # and re-registering the OAuth app invalidates old ones).
+                # Fall through to a fresh browser login instead of dying.
+                print(f"[halo] stored token refresh failed ({exc}); starting fresh login")
+                self._clear_refresh_token()
+                self._access_token = None
 
         verifier, challenge = generate_pkce_pair()
         state = generate_state()
