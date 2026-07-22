@@ -271,11 +271,53 @@ class HaloPSAAdapter(PSAAdapter):
             item["outcome_id"] = str(outcome_id)
         else:
             item["outcome"] = "Note"
-        if entry.charge_rate is not None:
-            item["chargerate"] = str(entry.charge_rate)
+        # chargerate is a rate ID (e.g. Tier 3 Labor = 8), not an amount.
+        # Priority: explicit on the entry > the ticket's default charge
+        # rate > halo_default_chargerate config > omit (outcome default).
+        chargerate = entry.charge_rate
+        if chargerate is None:
+            chargerate = self._ticket_default_chargerate(entry.ticket_id)
+        if chargerate is None:
+            chargerate = cfg.get("halo_default_chargerate")
+        if chargerate is not None:
+            item["chargerate"] = str(chargerate)
+            print(f"[halo] ticket {entry.ticket_id}: using chargerate {chargerate}")
+        else:
+            print(f"[halo] ticket {entry.ticket_id}: no chargerate found; "
+                  "outcome default will apply -- check billing on this action")
         resp = self._api_post("Actions", [item])
         rec = resp[0] if isinstance(resp, list) and resp else resp
+        # Sanity-check where the time landed: on billable work,
+        # actionchargehours/actionprepayhours should be non-zero.
+        if isinstance(rec, dict):
+            print(f"[halo] action {rec.get('id')}: chargerate={rec.get('chargerate')} "
+                  f"chargehours={rec.get('actionchargehours')} "
+                  f"prepayhours={rec.get('actionprepayhours')} "
+                  f"nonchargehours={rec.get('actionnonchargehours')} "
+                  f"chargeamount={rec.get('actionchargeamount')}")
         return str((rec or {}).get("id") or "")
+
+    def _ticket_default_chargerate(self, ticket_id):
+        """Read the ticket's default charge rate so posted time bills at
+        the same tier the ticket is configured for. Halo exposes this
+        under slightly different keys per version, so probe a few."""
+        try:
+            t = self._api_get(f"Tickets/{ticket_id}")
+        except Exception as exc:
+            print(f"[halo] couldn't read ticket {ticket_id} for chargerate: {exc}")
+            return None
+        for key in ("defaultchargerate", "default_chargerate", "chargerate",
+                    "charge_rate", "actioncode"):
+            v = t.get(key)
+            if v not in (None, "", -1):
+                return v
+        # Nothing matched -- log which rate-ish keys exist so the right one
+        # can be added to the probe list.
+        candidates = {k: v for k, v in t.items()
+                      if "charge" in k.lower() or "rate" in k.lower()}
+        print(f"[halo] ticket {ticket_id}: no default chargerate found; "
+              f"rate-like fields: {candidates}")
+        return None
 
     def _create_quick_time_appointment(self, entry: TimeEntry) -> str:
         """Entries with no ticket -> a Halo timesheet event
