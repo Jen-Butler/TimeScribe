@@ -55,6 +55,7 @@
 
   <nav>
     <button data-tab="today" class="active">Today</button>
+    <button data-tab="timeline">Timeline</button>
     <button data-tab="history">History</button>
     <button data-tab="tickets">Tickets</button>
     <button data-tab="settings">Settings</button>
@@ -152,6 +153,22 @@
     </div>
   </div>
   </div><!-- /today pane -->
+
+  <div class="pane" data-pane="timeline">
+  <div class="card">
+    <h2>Activity timeline
+      <button id="btnTimelineRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
+      <span style="font-size:11px;color:var(--muted);margin-left:8px">raw browser + app focus + AFK for the selected day</span>
+    </h2>
+    <div id="tlLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:2px 0 10px"></div>
+    <div id="timelineWrap" style="overflow-x:auto;position:relative">
+      <div id="timelineHost"></div>
+    </div>
+    <div id="tlTip" style="position:fixed;display:none;pointer-events:none;z-index:50;
+         background:#0b1220;border:1px solid #475569;border-radius:6px;padding:6px 9px;
+         font-size:11px;max-width:340px;color:var(--text);box-shadow:0 4px 14px rgba(0,0,0,.5)"></div>
+  </div>
+  </div><!-- /timeline pane -->
 
   <div class="pane" data-pane="history">
   <div class="card">
@@ -665,6 +682,101 @@ $('btnCopyMcpCmd').onclick = () => copyMcp('cmd');
 applyProviderUI();
 
 // ---- tab navigation ----
+// ---- activity timeline ----
+function tlColor(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 360;
+  return `hsl(${h},55%,55%)`;
+}
+function tlFmt(m) {
+  const hh = Math.floor(m / 60), mm = Math.round(m % 60);
+  return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+$('btnTimelineRefresh').onclick = () => loadTimeline();
+
+async function loadTimeline() {
+  const host = $('timelineHost');
+  host.innerHTML = '<span style="color:var(--muted);font-size:12px">Loading raw activity…</span>';
+  let r;
+  try { r = await api('/api/timeline?day=' + selDay()); }
+  catch (e) { host.innerHTML = '<span class="err-text">Timeline failed: ' + e.message + '</span>'; return; }
+
+  const lo = r.start_min, hi = Math.max(r.end_min, lo + 60);
+  const PPM = 3;                       // px per minute
+  const W = (hi - lo) * PPM + 90;      // + left gutter for lane labels
+  const GUT = 84, TOP = 22;
+  const lanes = [
+    {key:'apps',   label:'App focus',  y: TOP,      h: 46},
+    {key:'browser',label:'Browser',    y: TOP+58,   h: 30},
+    {key:'digest', label:'Digest',     y: TOP+100,  h: 30},
+  ];
+  const H = TOP + 150;
+  const x = m => GUT + (m - lo) * PPM;
+  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  let s = `<svg width="${W}" height="${H}" style="font-family:inherit">`;
+
+  // hour gridlines + labels
+  for (let m = lo; m <= hi; m += 60) {
+    s += `<line x1="${x(m)}" y1="${TOP-6}" x2="${x(m)}" y2="${H-8}" stroke="#334155" stroke-width="1"/>`;
+    s += `<text x="${x(m)+3}" y="${TOP-9}" fill="#64748b" font-size="10">${tlFmt(m)}</text>`;
+  }
+  // AFK bands behind everything
+  for (const a of r.afk) {
+    const ax = x(a.start), aw = Math.max(2, (a.end - a.start) * PPM);
+    s += `<rect x="${ax}" y="${TOP}" width="${aw}" height="${H-TOP-8}" fill="#64748b" opacity="0.14"`
+       + ` data-tip="AFK ${a.minutes} min (${tlFmt(a.start)}–${tlFmt(a.end)})"/>`;
+  }
+  // lane labels
+  for (const L of lanes)
+    s += `<text x="4" y="${L.y + L.h/2 + 3}" fill="#94a3b8" font-size="11">${L.label}</text>`;
+
+  // app focus blocks
+  const appsY = lanes[0].y, appsH = lanes[0].h;
+  for (const w of r.windows) {
+    const bx = x(w.start), bw = Math.max(1.5, (w.end - w.start) * PPM);
+    const tip = `${esc(w.app)} — ${esc(w.title)}\n${w.clock} · ${Math.round((w.end-w.start))} min`;
+    s += `<rect x="${bx}" y="${appsY}" width="${bw}" height="${appsH}" rx="2" fill="${tlColor(w.app)}"`
+       + ` opacity="0.85" data-tip="${tip.replace(/"/g,'&quot;')}"/>`;
+  }
+  // browser visits as ticks colored by profile
+  const brY = lanes[1].y, brH = lanes[1].h;
+  for (const v of r.visits) {
+    const tip = `[${esc(v.profile)}] ${esc(v.domain)}\n${esc(v.title)}\n${v.clock}`;
+    s += `<rect x="${x(v.t)}" y="${brY}" width="2.5" height="${brH}" fill="${tlColor(v.profile)}"`
+       + ` data-tip="${tip.replace(/"/g,'&quot;')}"/>`;
+  }
+  // digest blocks
+  const dY = lanes[2].y, dH = lanes[2].h;
+  for (const d of r.digest) {
+    const bx = x(d.start), bw = Math.max(2, (d.end - d.start) * PPM);
+    s += `<rect x="${bx}" y="${dY}" width="${bw}" height="${dH}" rx="3" fill="var(--accent)" opacity="0.30"`
+       + ` data-tip="${esc(tlFmt(d.start))}–${esc(tlFmt(d.end))}\n${esc(d.summary).replace(/"/g,'&quot;')}"/>`;
+    if (bw > 40) s += `<text x="${bx+4}" y="${dY+dH/2+3}" fill="#cbd5e1" font-size="10" clip-path="inset(0)">${esc(d.summary).slice(0,40)}</text>`;
+  }
+  s += `</svg>`;
+  host.innerHTML = s;
+
+  // legend of profiles + top apps
+  const profs = [...new Set(r.visits.map(v => v.profile))].filter(Boolean);
+  const apps = [...new Set(r.windows.map(w => w.app))].filter(Boolean).slice(0, 8);
+  $('tlLegend').innerHTML =
+    apps.map(a => `<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${tlColor(a)};margin-right:4px"></span>${esc(a)}</span>`).join('')
+    + (profs.length ? ` &nbsp;|&nbsp; profiles: ` + profs.map(p => `<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${tlColor(p)};margin-right:4px"></span>${esc(p)}</span>`).join('') : '');
+
+  // shared tooltip
+  const tip = $('tlTip');
+  host.querySelectorAll('[data-tip]').forEach(el => {
+    el.style.cursor = 'crosshair';
+    el.onmousemove = ev => {
+      tip.style.display = 'block';
+      tip.style.left = (ev.clientX + 14) + 'px';
+      tip.style.top = (ev.clientY + 14) + 'px';
+      tip.textContent = el.getAttribute('data-tip');
+    };
+    el.onmouseleave = () => { tip.style.display = 'none'; };
+  });
+}
+
 function showTab(name) {
   document.querySelectorAll('nav button').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === name));
@@ -672,6 +784,7 @@ function showTab(name) {
     p.classList.toggle('active', p.dataset.pane === name));
   if (name === 'history') loadPosted();
   if (name === 'tickets') $('btnRefresh').click();
+  if (name === 'timeline') loadTimeline();
 }
 document.querySelectorAll('nav button').forEach(b =>
   b.onclick = () => showTab(b.dataset.tab));

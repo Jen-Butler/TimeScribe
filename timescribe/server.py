@@ -443,6 +443,68 @@ def timesheet(day: str = None):
     return {"day": target.isoformat(), **ts}
 
 
+@app.get("/api/timeline")
+def timeline(day: str = None):
+    """Raw activity data for one day as minutes-from-midnight, for the
+    timeline overlay: window focus, browser visits, AFK, and the digest."""
+    from datetime import date as _d, datetime as _dtm, time as _time, timedelta as _timedelta
+    from timescribe import history as _history
+    target = _d.fromisoformat(day) if day else _d.today()
+    since = _dtm.combine(target, _time.min)
+    until = _dtm.combine(target, _time.max)
+
+    def mins(dt):
+        return round(dt.hour * 60 + dt.minute + dt.second / 60, 2)
+
+    cfg = appconfig.load()
+    ud = cfg.get("edge_user_data_dir") or _history.default_user_data_dir()
+    try:
+        visits = _history.read_all_history(
+            ud, since=since, until=until,
+            ignore_prefixes=("chrome-extension://", "edge-extension://",
+                             "edge://", "about:"),
+            exclude_profiles=cfg.get("exclude_profiles", []))
+    except Exception as exc:
+        print(f"[timeline] history read failed: {exc}")
+        visits = []
+    windows = _aw.get_window_events(since, until)
+    afk = _aw.get_inactivity_periods(since, until)
+
+    win_out = []
+    for w in windows:
+        end = w["time"] + _timedelta(seconds=w["duration_s"])
+        win_out.append({"start": mins(w["time"]), "end": mins(end),
+                        "app": w["app"], "title": w["title"],
+                        "clock": w["time"].strftime("%H:%M")})
+    vis_out = [{"t": mins(v["time"]), "domain": v["domain"],
+                "title": v["title"], "profile": v["profile"],
+                "clock": v["time"].strftime("%H:%M")} for v in visits]
+    afk_out = [{"start": mins(a["start"]), "end": mins(a["end"]),
+                "minutes": a["minutes"]} for a in afk]
+
+    digest_out = []
+    for e in _digest.load_digest(target):
+        tr = (e.get("time_range") or "").split("-")
+        if len(tr) == 2:
+            try:
+                sh, sm = map(int, tr[0].strip().split(":"))
+                eh, em = map(int, tr[1].strip().split(":"))
+                digest_out.append({"start": sh * 60 + sm, "end": eh * 60 + em,
+                                   "summary": e.get("summary", "")})
+            except ValueError:
+                pass
+
+    span = ([w["start"] for w in win_out] + [w["end"] for w in win_out]
+            + [v["t"] for v in vis_out])
+    lo = min(span) if span else 8 * 60
+    hi = max(span) if span else 18 * 60
+    return {"day": target.isoformat(),
+            "start_min": max(0, int(lo // 60 * 60)),
+            "end_min": min(1440, int(-(-hi // 60) * 60)),
+            "windows": win_out, "visits": vis_out,
+            "afk": afk_out, "digest": digest_out}
+
+
 # ---------- Logs ----------
 
 @app.get("/api/logs")
