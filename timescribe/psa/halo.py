@@ -321,82 +321,58 @@ class HaloPSAAdapter(PSAAdapter):
               f"rate-like fields: {candidates}")
         return None
 
-    def get_day_timesheet(self, day_start, day_end) -> list:
-        """Existing timesheet content for the logged-in agent for one day:
-        what Halo already has, so new entries can be fitted around it.
-
-        Halo's /Timesheet endpoint is temperamental (see field notes), so
-        fall back to /TimesheetEvent, then to appointments.
-        """
+    def get_day_timesheet(self, day_start, day_end) -> dict:
+        """The logged-in agent's Halo timesheet for one day, via
+        GET /Timesheet/0?date=...&agent_id=...&utcoffset=... -- returns the
+        day's events plus Halo's own rollups (target/actual/unlogged hours).
+        Event timestamps come back as naive UTC; we convert to local."""
         agent_id = self.current_agent_id
-        params = {
-            "start_date": day_start.strftime("%Y-%m-%dT%H:%M:%S"),
-            "end_date":   day_end.strftime("%Y-%m-%dT%H:%M:%S"),
-            "agents":     str(agent_id),
+        local_off = datetime.now().astimezone().utcoffset()
+        utcoffset_min = int(-local_off.total_seconds() // 60) if local_off else 0
+        raw = self._api_get("Timesheet/0", params={
+            "date": day_start.strftime("%Y-%m-%dT00:00:00.000Z"),
+            "agent_id": str(agent_id),
+            "utcoffset": str(utcoffset_min),
+        })
+        events = raw.get("events") or []
+        rows = [r for r in (self._normalize_ts_row(e) for e in events) if r]
+        print(f"[halo] Timesheet/0: {len(rows)} events, "
+              f"actual={raw.get('actual_hours')} unlogged={raw.get('unlogged_hours')}")
+        return {
+            "rows": rows,
+            "target_hours": raw.get("target_hours"),
+            "actual_hours": raw.get("actual_hours"),
+            "unlogged_hours": raw.get("unlogged_hours"),
         }
-        for endpoint in ("Timesheet", "TimesheetEvent"):
-            try:
-                raw = self._api_get(endpoint, params=params)
-            except Exception as exc:
-                print(f"[halo] GET {endpoint} failed: {exc}")
-                continue
-            rows = self._extract_rows(raw)
-            if rows is None:
-                print(f"[halo] GET {endpoint}: unrecognized shape, "
-                      f"keys={list(raw.keys())[:12] if isinstance(raw, dict) else type(raw)}")
-                continue
-            out = [self._normalize_ts_row(r) for r in rows]
-            out = [r for r in out if r]
-            print(f"[halo] {endpoint}: {len(out)} timesheet rows for agent {agent_id}")
-            return out
-        print("[halo] no timesheet endpoint worked; returning empty")
-        return []
-
-    @staticmethod
-    def _extract_rows(raw):
-        if isinstance(raw, list):
-            return raw
-        if isinstance(raw, dict):
-            for key in ("events", "timesheets", "appointments", "record_ids", "rows"):
-                if isinstance(raw.get(key), list):
-                    return raw[key]
-            # single-agent timesheet object with nested events
-            if isinstance(raw.get("agents"), list) and raw["agents"]:
-                a0 = raw["agents"][0]
-                for key in ("events", "appointments"):
-                    if isinstance(a0.get(key), list):
-                        return a0[key]
-        return None
 
     @staticmethod
     def _normalize_ts_row(r) -> Optional[dict]:
-        """Map a Halo timesheet-ish row to {start, end, hours, ticket_id,
-        subject, kind}, converting UTC timestamps to local."""
+        """Map a Halo timesheet event to {start, end, hours, ticket_id,
+        subject, customer, charge_type}. Timestamps are naive UTC ->
+        convert to local for display."""
         if not isinstance(r, dict):
             return None
+        from datetime import timezone as _tzu
 
         def _dtparse(val):
             if not val:
                 return None
             try:
-                s = str(val).replace("Z", "+00:00")
-                dt = datetime.fromisoformat(s)
-                if dt.tzinfo is not None:
-                    dt = dt.astimezone().replace(tzinfo=None)   # -> local naive
-                return dt
+                dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=_tzu.utc)    # naive = UTC
+                return dt.astimezone().replace(tzinfo=None)   # -> local naive
             except ValueError:
                 return None
 
-        start = _dtparse(r.get("start_date") or r.get("startdate")
-                         or r.get("actionarrivaldate"))
-        end = _dtparse(r.get("end_date") or r.get("enddate")
-                       or r.get("actioncompletiondate") or r.get("datetime"))
+        start = _dtparse(r.get("start_date"))
+        end = _dtparse(r.get("end_date"))
         if start is None and end is None:
             return None
         hours = r.get("timetaken")
         if hours is None and start and end:
-            hours = round((end - start).total_seconds() / 3600, 2)
-        tid = r.get("ticket_id") or r.get("faultid")
+            hours = (end - start).total_seconds() / 3600
+        tid = r.get("ticket_id")
         if isinstance(tid, (int, float)) and tid <= 0:
             tid = None
         return {
@@ -404,10 +380,9 @@ class HaloPSAAdapter(PSAAdapter):
             "end": end.strftime("%H:%M") if end else "",
             "hours": round(float(hours), 2) if hours is not None else None,
             "ticket_id": tid,
-            "subject": (r.get("subject") or r.get("summary")
-                        or r.get("note") or "")[:120],
-            "kind": ("action" if r.get("actionid") or r.get("outcome")
-                     else "event"),
+            "subject": (r.get("subject") or r.get("note") or "")[:120],
+            "customer": r.get("customer") or "",
+            "charge_type": r.get("charge_type_name") or "",
         }
 
     def _create_quick_time_appointment(self, entry: TimeEntry) -> str:

@@ -422,20 +422,26 @@ async function loadTimesheet() {
   el.innerHTML = '<span style="color:var(--muted)">Loading timesheet from Halo…</span>';
   try {
     const r = await api('/api/timesheet?day=' + selDay());
+    const h = x => x != null ? (Math.round(x * 100) / 100) + 'h' : '?';
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">` +
+      `<strong style="color:var(--text)">${h(r.actual_hours)}</strong> logged · ` +
+      `target ${h(r.target_hours)} · ` +
+      `<strong style="color:var(--bad)">${h(r.unlogged_hours)}</strong> unlogged</div>`;
     if (!r.rows.length) {
-      el.innerHTML = '<span style="color:var(--muted)">Nothing on your Halo timesheet for this day yet.</span>';
+      el.innerHTML += '<span style="color:var(--muted)">Nothing on your Halo timesheet for this day yet.</span>';
       return;
     }
-    el.innerHTML = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">` +
-      `${r.rows.length} entries · <strong style="color:var(--text)">${r.total_hours}h</strong> total on your Halo timesheet</div>`;
     for (const t of r.rows) {
       const div = document.createElement('div');
       div.style.cssText = 'border-bottom:1px solid #334155;padding:7px 0;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap';
+      const noCharge = (t.charge_type || '').toLowerCase().includes('no charge');
       div.innerHTML =
         `<strong>${t.start}${t.end ? '–' + t.end : ''}</strong>` +
         `<span style="color:var(--accent)">${t.hours != null ? t.hours + 'h' : ''}</span>` +
         `<span style="color:var(--muted);font-size:11px">${t.ticket_id ? '#' + t.ticket_id : 'no ticket'}</span>` +
-        `<span style="flex:1">${t.subject}</span>`;
+        `<span style="color:var(--muted);font-size:11px">${t.customer}</span>` +
+        (t.charge_type ? `<span style="font-size:11px;color:${noCharge ? 'var(--muted)' : 'var(--good)'}">${t.charge_type}</span>` : '') +
+        `<span style="flex:1;min-width:180px">${t.subject}</span>`;
       el.appendChild(div);
     }
   } catch (e) {
