@@ -459,7 +459,8 @@ def timesheet(day: str = None):
     except Exception as exc:
         raise HTTPException(502, str(exc))
     ts["rows"].sort(key=lambda r: r.get("start") or "99")
-    return {"day": target.isoformat(), **ts}
+    base = (appconfig.load().get("halo_base_url") or "").rstrip("/")
+    return {"day": target.isoformat(), "halo_base_url": base, **ts}
 
 
 @app.get("/api/timeline")

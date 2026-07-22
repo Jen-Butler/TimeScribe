@@ -304,6 +304,7 @@ class HaloPSAAdapter(PSAAdapter):
         t = self._api_get(f"Tickets/{ticket_id}")
         return {
             "id": t.get("id"),
+            "url": f"{self.base_url}/ticket?id={t.get('id')}",
             "summary": t.get("summary") or t.get("subject") or "",
             "details": (t.get("details") or t.get("details_html") or "")[:600],
             "client": t.get("client_name") or "",
