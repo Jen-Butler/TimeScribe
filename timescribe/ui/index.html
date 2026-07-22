@@ -133,14 +133,23 @@
     </h2>
     <div id="msg2" style="font-size:13px;min-height:16px;margin-bottom:6px"></div>
     <datalist id="ticketOptions"></datalist>
-    <div style="display:flex;gap:4px;margin-bottom:8px">
-      <button id="subDrafts" class="subtab active-subtab" style="margin:0;padding:4px 14px;font-size:12px">Drafts</button>
-      <button id="subPosted" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:#334155">Posted</button>
-      <button id="subTimesheet" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:#334155" title="What's already on your Halo timesheet for this day">Timesheet</button>
+    <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:3;min-width:360px">
+        <div style="display:flex;gap:4px;margin-bottom:8px">
+          <button id="subDrafts" class="subtab active-subtab" style="margin:0;padding:4px 14px;font-size:12px">Drafts</button>
+          <button id="subPosted" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:#334155">Posted</button>
+        </div>
+        <div id="draftList" style="font-size:13px"></div>
+        <div id="postedTodayList" style="font-size:13px;display:none"></div>
+      </div>
+      <div style="flex:2;min-width:300px;border-left:1px solid #334155;padding-left:16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <strong style="font-size:13px">Halo timesheet</strong>
+          <button id="btnTsRefresh" style="margin:0;padding:3px 10px;font-size:11px">Refresh</button>
+        </div>
+        <div id="timesheetList" style="font-size:12px"></div>
+      </div>
     </div>
-    <div id="draftList" style="font-size:13px"></div>
-    <div id="postedTodayList" style="font-size:13px;display:none"></div>
-    <div id="timesheetList" style="font-size:13px;display:none"></div>
   </div>
   </div><!-- /today pane -->
 
@@ -260,7 +269,7 @@ $('btnRefresh').onclick = async () => {
 
 refreshStatus();
 $('dayPick').value = new Date().toISOString().slice(0,10);
-$('dayPick').onchange = () => { loadDigest(); loadDrafts(); loadSummary(); };
+$('dayPick').onchange = () => { loadDigest(); loadDrafts(); loadSummary(); loadTimesheet(); };
 
 function selDay() {
   return $('dayPick').value || new Date().toISOString().slice(0,10);
@@ -381,7 +390,7 @@ async function repostDraft(i) {
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({index: i, action: 'repost'})});
     setMsg('Re-posted (new Halo id ' + r.posted_id + ').', true);
-    loadDrafts(); loadSummary();
+    loadDrafts(); loadSummary(); loadTimesheet();
   } catch (e) { setMsg('Repost failed: ' + e.message, false); }
 }
 
@@ -407,15 +416,12 @@ async function saveDraft(i) {
 function showSubTab(which) {
   $('draftList').style.display = which === 'drafts' ? '' : 'none';
   $('postedTodayList').style.display = which === 'posted' ? '' : 'none';
-  $('timesheetList').style.display = which === 'timesheet' ? '' : 'none';
   $('subDrafts').style.background = which === 'drafts' ? 'var(--accent)' : '#334155';
   $('subPosted').style.background = which === 'posted' ? 'var(--accent)' : '#334155';
-  $('subTimesheet').style.background = which === 'timesheet' ? 'var(--accent)' : '#334155';
-  if (which === 'timesheet') loadTimesheet();
 }
 $('subDrafts').onclick = () => showSubTab('drafts');
 $('subPosted').onclick = () => showSubTab('posted');
-$('subTimesheet').onclick = () => showSubTab('timesheet');
+$('btnTsRefresh').onclick = () => loadTimesheet();
 
 async function loadTimesheet() {
   const el = $('timesheetList');
@@ -507,12 +513,13 @@ $('btnPostDrafts').onclick = async () => {
     if (r.results.length === 0) msg = 'Nothing approved to post — approve some drafts first.';
     if (fail.length) msg += ` ${fail.length} failed: ` + (fail[0].error || '').slice(0, 160);
     setMsg2(msg, fail.length === 0 && r.results.length > 0);
-    loadDrafts(); loadSummary(); loadPosted();
+    loadDrafts(); loadSummary(); loadPosted(); loadTimesheet();
   } catch (e) { setMsg2('Post failed: ' + e.message, false); }
   finally { $('btnPostDrafts').disabled = false; }
 };
 
 loadDrafts();
+loadTimesheet();
 
 async function loadSched() {
   try {
