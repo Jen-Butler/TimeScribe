@@ -54,8 +54,17 @@ def _parse_hhmm(s: str, default: time_cls) -> time_cls:
         return default
 
 
+def _active_weekday(now: datetime, cfg: dict) -> bool:
+    days = cfg.get("digest_weekdays", [0, 1, 2, 3, 4])
+    try:
+        days = [int(d) for d in days]
+    except (TypeError, ValueError):
+        days = [0, 1, 2, 3, 4]
+    return now.weekday() in days
+
+
 def _in_work_hours(now: datetime, cfg: dict) -> bool:
-    if now.weekday() >= 5:          # Sat/Sun
+    if not _active_weekday(now, cfg):
         return False
     start = _parse_hhmm(cfg.get("work_start", "09:00"), time_cls(9, 0))
     end   = _parse_hhmm(cfg.get("work_end", "17:00"),  time_cls(17, 0))
@@ -63,9 +72,25 @@ def _in_work_hours(now: datetime, cfg: dict) -> bool:
 
 
 def _run_digest_safe() -> bool:
+    """Periodic run. When combined mode is on and Halo is connected, one
+    pass builds the digest AND ticket-matched drafts (accumulating through
+    the day). Otherwise falls back to a plain digest."""
     try:
-        from timescribe import digest
-        digest.run_digest(date_cls.today())     # full day so far, replace
+        cfg = appconfig.load()
+        combined = cfg.get("combined_digest_drafts", True)
+        adapter = None
+        if combined:
+            try:
+                from timescribe.server import get_adapter
+                adapter = get_adapter()
+            except Exception:
+                adapter = None
+        if combined and adapter is not None and adapter.is_authenticated():
+            from timescribe import inference
+            inference.build_combined(adapter, date_cls.today())
+        else:
+            from timescribe import digest
+            digest.run_digest(date_cls.today())     # full day so far, replace
         _state["last_digest"] = datetime.now()
         _state["last_error"] = None
         return True
@@ -78,16 +103,24 @@ def _run_digest_safe() -> bool:
 
 def _run_eod_safe(notify: Optional[Callable[[str, str], None]]) -> None:
     try:
-        _run_digest_safe()
+        cfg = appconfig.load()
         from timescribe.server import get_adapter
         from timescribe import inference
         a = get_adapter()
         if a is None or not a.is_authenticated():
+            _run_digest_safe()      # digest-only; nothing to match against
             if notify:
-                notify("TimeScribe", "Day digested â€” connect Halo to draft time entries.")
+                notify("TimeScribe", "Day digested - connect Halo to draft time entries.")
             return
-        result = inference.generate_drafts(a, date_cls.today())
+        # Combined mode already builds matched drafts in _run_digest_safe;
+        # otherwise do the classic digest-then-match at EOD.
+        if cfg.get("combined_digest_drafts", True):
+            result = inference.build_combined(a, date_cls.today())
+        else:
+            _run_digest_safe()
+            result = inference.generate_drafts(a, date_cls.today())
         n = len(result.get("drafts", []))
+        _state["last_digest"] = datetime.now()
         _state["last_eod"] = date_cls.today()
         if notify:
             notify("TimeScribe",
@@ -122,7 +155,7 @@ def _loop(notify: Optional[Callable[[str, str], None]]):
                     print(f"[scheduler] AW watchdog: {r}")
 
             # EOD trigger: once per weekday after eod time
-            if (now.weekday() < 5 and now.time() >= eod
+            if (_active_weekday(now, cfg) and now.time() >= eod
                     and _state["last_eod"] != date_cls.today()
                     and _llm_key_available()):
                 print("[scheduler] EOD run")

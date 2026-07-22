@@ -31,8 +31,14 @@ DEFAULTS: Dict[str, Any] = {
     "aw_host": "http://127.0.0.1:5600",
     "llm_provider": "anthropic",
     "openai_model_default": "gpt-4o-mini",
+    "openai_model_planner": "gpt-4o",
     "digest_interval_minutes": 120,
     "eod_time": "17:15",
+    # Which weekdays the scheduler runs (0=Mon .. 6=Sun). Default Mon-Fri.
+    "digest_weekdays": [0, 1, 2, 3, 4],
+    # Combined pass: build ticket-matched drafts during periodic digests,
+    # not just at EOD. One LLM call does digest + matching together.
+    "combined_digest_drafts": True,
 }
 
 

@@ -60,6 +60,9 @@ class ConfigUpdate(BaseModel):
     exclude_profiles: Optional[list] = None
     llm_provider: Optional[str] = None      # "anthropic" | "openai"
     aw_host: Optional[str] = None
+    digest_weekdays: Optional[list] = None      # [0..6], Mon=0
+    digest_interval_minutes: Optional[int] = None
+    combined_digest_drafts: Optional[bool] = None
 
 
 class SecretUpdate(BaseModel):
@@ -222,13 +225,17 @@ def drafts_generate(day: str = None):
 
 @app.post("/api/drafts/suggest")
 def drafts_suggest(day: str = None):
-    """Optional AI pass: correlate digest entries to tickets (the old
-    inference behavior). Costs an LLM call."""
+    """AI pass: raw activity + open tickets -> digest + ticket-matched
+    drafts in one combined LLM call (refreshes both). Falls back to the
+    classic digest-then-match if combined mode is disabled."""
     a = get_adapter()
     if a is None or not a.is_authenticated():
         raise HTTPException(401, "Halo not connected")
     target = _date.fromisoformat(day) if day else _date.today()
+    cfg = appconfig.load()
     try:
+        if cfg.get("combined_digest_drafts", True):
+            return _inference.build_combined(a, target)
         return _inference.generate_drafts(a, target)
     except Exception as exc:
         raise HTTPException(500, str(exc))

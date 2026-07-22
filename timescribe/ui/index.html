@@ -93,6 +93,34 @@
     <div id="msg"></div>
   </div>
 
+  <div class="card" id="scheduleCard">
+    <h2>Digest schedule</h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
+      When automatic digests run and drafts get built. Digests run every
+      interval during these hours, on the selected days.</p>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <label style="margin:0">Work start
+        <input type="time" id="workStart" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px"></label>
+      <label style="margin:0">Work end
+        <input type="time" id="workEnd" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px"></label>
+      <label style="margin:0">Every
+        <select id="digestInterval" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text)">
+          <option value="60">1 hour</option>
+          <option value="120">2 hours</option>
+          <option value="180">3 hours</option>
+          <option value="240">4 hours</option>
+        </select></label>
+    </div>
+    <label style="display:block;margin:12px 0 4px">Active days</label>
+    <div id="weekdayPicker" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="combinedDrafts" style="width:auto;margin:0">
+      Build ticket-matched drafts during each digest (one AI pass does digest + matching)
+    </label>
+    <button id="btnSaveSchedule" style="margin-top:12px">Save schedule</button>
+    <div id="schedMsg" style="font-size:12px;margin-top:6px"></div>
+  </div>
+
   <div class="card">
     <h2>Logs
       <button id="btnLogsRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
@@ -680,6 +708,57 @@ $('btnCopyMcpJson').onclick = () => copyMcp('json');
 $('btnCopyMcpCmd').onclick = () => copyMcp('cmd');
 
 applyProviderUI();
+
+// ---- digest schedule settings ----
+const WEEKDAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+let schedDays = [0,1,2,3,4];
+function renderWeekdays() {
+  const box = $('weekdayPicker');
+  box.innerHTML = '';
+  WEEKDAYS.forEach((name, idx) => {
+    const on = schedDays.includes(idx);
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.style.cssText = `margin:0;padding:5px 12px;font-size:12px;border-radius:6px;`
+      + `background:${on ? 'var(--accent)' : '#334155'};color:${on ? '#04121e' : 'var(--text)'}`;
+    b.onclick = () => {
+      if (schedDays.includes(idx)) schedDays = schedDays.filter(d => d !== idx);
+      else schedDays = [...schedDays, idx].sort();
+      renderWeekdays();
+    };
+    box.appendChild(b);
+  });
+}
+async function loadSchedule() {
+  try {
+    const s = await api('/api/status');
+    const c = s.config || {};
+    if (c.work_start) $('workStart').value = c.work_start;
+    if (c.work_end) $('workEnd').value = c.work_end;
+    if (c.digest_interval_minutes) $('digestInterval').value = String(c.digest_interval_minutes);
+    $('combinedDrafts').checked = c.combined_digest_drafts !== false;
+    if (Array.isArray(c.digest_weekdays)) schedDays = c.digest_weekdays.map(Number);
+    renderWeekdays();
+  } catch (e) { renderWeekdays(); }
+}
+$('btnSaveSchedule').onclick = async () => {
+  try {
+    await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        work_start: $('workStart').value || '09:00',
+        work_end: $('workEnd').value || '17:00',
+        digest_interval_minutes: parseInt($('digestInterval').value, 10),
+        digest_weekdays: schedDays,
+        combined_digest_drafts: $('combinedDrafts').checked,
+      })});
+    $('schedMsg').textContent = 'Schedule saved.';
+    $('schedMsg').className = 'ok-text';
+  } catch (e) {
+    $('schedMsg').textContent = 'Save failed: ' + e.message;
+    $('schedMsg').className = 'err-text';
+  }
+};
+loadSchedule();
 
 // ---- tab navigation ----
 // ---- activity timeline ----
