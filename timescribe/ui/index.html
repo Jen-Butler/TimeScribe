@@ -326,7 +326,16 @@ function draftRow(d, i) {
     <div style="color:var(--muted);font-size:11px;margin:3px 0">${target}</div>
     <textarea id="dn${i}" ${editable?'':'disabled'} rows="2"
       style="width:100%;margin:4px 0;padding:6px 8px;border-radius:6px;border:1px solid #334155;
-             background:#0f172a;color:var(--text);font-size:13px;font-family:inherit">${d.note}</textarea>`;
+             background:#0f172a;color:var(--text);font-size:13px;font-family:inherit">${d.note}</textarea>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:2px 0 4px">
+      <label style="margin:0;font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+        <input type="checkbox" id="dnc${i}" ${d.no_charge?'checked':''} ${editable?'':'disabled'}
+               style="width:auto;margin:0"> No charge
+      </label>
+      <input id="dp${i}" value="${(d.private_note||'').replace(/"/g,'&quot;')}"
+             placeholder="private note (agents only)" ${editable?'':'disabled'}
+             style="flex:1;min-width:200px;padding:3px 8px;font-size:12px">
+    </div>`;
 
   const btns = document.createElement('div');
   const mk = (label, bg, fn) => {
@@ -385,6 +394,8 @@ async function saveDraft(i) {
         note: $('dn'+i).value,
         start_time: $('ds'+i).value,
         end_time: $('de'+i).value,
+        no_charge: $('dnc'+i).checked,
+        private_note: $('dp'+i).value,
       })});
     setMsg('Draft updated.', true);
     loadDrafts();

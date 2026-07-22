@@ -321,6 +321,8 @@ class DraftUpdate(BaseModel):
     note: Optional[str] = None
     start_time: Optional[str] = None
     end_time: Optional[str] = None
+    no_charge: Optional[bool] = None     # override ticket rate -> no charge
+    private_note: Optional[str] = None   # agent-only note on the action
 
 
 @app.post("/api/drafts/update")
@@ -335,6 +337,10 @@ def drafts_update(body: DraftUpdate, day: str = None):
     item["ticket_id"] = body.ticket_id          # explicit None clears it
     if body.note is not None:
         item["note"] = body.note
+    if body.no_charge is not None:
+        item["no_charge"] = body.no_charge
+    if body.private_note is not None:
+        item["private_note"] = body.private_note
     if body.start_time:
         item["start_time"] = body.start_time
     if body.end_time:
@@ -368,19 +374,32 @@ def drafts_post(day: str = None):
         if item.get("status") != "approved":
             continue
         try:
-            tid = item.get("ticket_id")
-            entry = _TimeEntry(
-                ticket_id=int(tid) if tid else None,
-                start_local=_dt.combine(target, _dt.strptime(item["start_time"], "%H:%M").time()),
-                end_local=_dt.combine(target, _dt.strptime(item["end_time"], "%H:%M").time()),
-                note=item["note"],
-            )
-            posted_id = a.create_time_entry(entry)
+            posted_id = a.create_time_entry(_entry_from_item(item, target))
             _drafts.set_status(target, i, "posted", posted_id=posted_id)
             results.append({"index": i, "ok": True, "posted_id": posted_id})
         except Exception as exc:
             results.append({"index": i, "ok": False, "error": str(exc)})
     return {"results": results}
+
+
+def _entry_from_item(item: dict, target) -> "_TimeEntry":
+    """Build a TimeEntry from a stored draft item, applying the no-charge
+    override (chargerate 0, configurable via halo_nocharge_rate) and any
+    private note."""
+    cfg = appconfig.load()
+    tid = item.get("ticket_id")
+    charge_rate = None
+    if item.get("no_charge"):
+        charge_rate = float(cfg.get("halo_nocharge_rate", 0))
+    return _TimeEntry(
+        ticket_id=int(tid) if tid else None,
+        start_local=_dt.combine(target, _dt.strptime(item["start_time"], "%H:%M").time()),
+        end_local=_dt.combine(target, _dt.strptime(item["end_time"], "%H:%M").time()),
+        note=item["note"],
+        charge_rate=charge_rate,
+        billable=not item.get("no_charge"),
+        private_note=item.get("private_note") or None,
+    )
 
 
 @app.post("/api/drafts/repost")
@@ -398,15 +417,8 @@ def drafts_repost(body: DraftAction, day: str = None):
     item = items[body.index]
     if item.get("status") != "posted":
         raise HTTPException(400, "only posted entries can be re-posted")
-    tid = item.get("ticket_id")
-    entry = _TimeEntry(
-        ticket_id=int(tid) if tid else None,
-        start_local=_dt.combine(target, _dt.strptime(item["start_time"], "%H:%M").time()),
-        end_local=_dt.combine(target, _dt.strptime(item["end_time"], "%H:%M").time()),
-        note=item["note"],
-    )
     try:
-        posted_id = a.create_time_entry(entry)
+        posted_id = a.create_time_entry(_entry_from_item(item, target))
     except Exception as exc:
         # Pass Halo's actual complaint to the UI instead of a bare 500.
         raise HTTPException(502, str(exc))

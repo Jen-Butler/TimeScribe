@@ -263,6 +263,8 @@ class HaloPSAAdapter(PSAAdapter):
             "hiddenfromuser": False,
             "sendemail": False,
         }
+        if entry.private_note:
+            item["private_note"] = entry.private_note
         # outcome_id is instance-specific (each Halo instance defines its own
         # outcomes). Configurable via halo_outcome_id; fall back to the
         # generic "Note" outcome, which every instance has.

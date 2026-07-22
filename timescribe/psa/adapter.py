@@ -32,8 +32,9 @@ class TimeEntry:
     start_local: datetime
     end_local: datetime
     note: str
-    charge_rate: Optional[float] = None
+    charge_rate: Optional[float] = None    # rate ID; 0 = no charge
     billable: bool = True
+    private_note: Optional[str] = None     # agent-only note on the action
 
 
 @dataclass
