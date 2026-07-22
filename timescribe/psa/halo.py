@@ -299,6 +299,21 @@ class HaloPSAAdapter(PSAAdapter):
                   f"chargeamount={rec.get('actionchargeamount')}")
         return str((rec or {}).get("id") or "")
 
+    def get_ticket(self, ticket_id) -> dict:
+        """Fetch one ticket's detail for the timesheet click-through panel."""
+        t = self._api_get(f"Tickets/{ticket_id}")
+        return {
+            "id": t.get("id"),
+            "summary": t.get("summary") or t.get("subject") or "",
+            "details": (t.get("details") or t.get("details_html") or "")[:600],
+            "client": t.get("client_name") or "",
+            "site": t.get("site_name") or "",
+            "status": t.get("status_name") or str(t.get("status") or ""),
+            "priority": t.get("priority_name") or "",
+            "agent": t.get("agent_name") or "",
+            "category": t.get("category_1") or "",
+        }
+
     def _ticket_default_chargerate(self, ticket_id):
         """Read the ticket's default charge rate so posted time bills at
         the same tier the ticket is configured for. Halo exposes this

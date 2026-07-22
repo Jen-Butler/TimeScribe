@@ -57,7 +57,6 @@
     <button data-tab="today" class="active">Today</button>
     <button data-tab="timeline">Timeline</button>
     <button data-tab="history">History</button>
-    <button data-tab="tickets">Tickets</button>
     <button data-tab="settings">Settings</button>
   </nav>
 
@@ -177,6 +176,7 @@
           <button id="btnTsRefresh" style="margin:0;padding:3px 10px;font-size:11px">Refresh</button>
         </div>
         <div id="timesheetList" style="font-size:12px"></div>
+        <div id="ticketDetail" style="display:none;margin-top:12px;padding:10px;border:1px solid #475569;border-radius:8px;background:#0b1220;font-size:12px"></div>
       </div>
     </div>
   </div>
@@ -206,16 +206,6 @@
     <div id="postedList" style="font-size:13px;line-height:1.7"></div>
   </div>
   </div><!-- /history pane -->
-
-  <div class="pane" data-pane="tickets">
-  <div class="card">
-    <h2>Open tickets <button id="btnRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button></h2>
-    <table id="ticketTable">
-      <thead><tr><th>#</th><th>Client</th><th>Subject</th><th>Status</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>
-  </div><!-- /tickets pane -->
 
   <div class="pane" data-pane="settings">
   <div class="card">
@@ -297,19 +287,6 @@ $('btnConnect').onclick = async () => {
     refreshStatus();
   } catch (e) { setMsg(e.message, false); }
   finally { $('btnConnect').disabled = false; }
-};
-
-$('btnRefresh').onclick = async () => {
-  try {
-    const r = await api('/api/tickets');
-    const tbody = $('ticketTable').querySelector('tbody');
-    tbody.innerHTML = '';
-    for (const t of r.tickets) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${t.id}</td><td>${t.client}</td><td>${t.subject}</td><td>${t.status}</td>`;
-      tbody.appendChild(tr);
-    }
-  } catch (e) { setMsg('Ticket fetch failed: ' + e.message, false); }
 };
 
 refreshStatus();
@@ -486,17 +463,45 @@ async function loadTimesheet() {
       const div = document.createElement('div');
       div.style.cssText = 'border-bottom:1px solid #334155;padding:7px 0;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap';
       const noCharge = (t.charge_type || '').toLowerCase().includes('no charge');
+      const tkt = t.ticket_id
+        ? `<a href="#" data-ticket="${t.ticket_id}" style="color:var(--accent);font-size:11px;text-decoration:none">#${t.ticket_id} ⓘ</a>`
+        : `<span style="color:var(--muted);font-size:11px">no ticket</span>`;
       div.innerHTML =
         `<strong>${t.start}${t.end ? '–' + t.end : ''}</strong>` +
         `<span style="color:var(--accent)">${t.hours != null ? t.hours + 'h' : ''}</span>` +
-        `<span style="color:var(--muted);font-size:11px">${t.ticket_id ? '#' + t.ticket_id : 'no ticket'}</span>` +
+        tkt +
         `<span style="color:var(--muted);font-size:11px">${t.customer}</span>` +
         (t.charge_type ? `<span style="font-size:11px;color:${noCharge ? 'var(--muted)' : 'var(--good)'}">${t.charge_type}</span>` : '') +
         `<span style="flex:1;min-width:180px">${t.subject}</span>`;
       el.appendChild(div);
     }
+    el.querySelectorAll('[data-ticket]').forEach(a => {
+      a.onclick = ev => { ev.preventDefault(); showTicketDetail(a.getAttribute('data-ticket')); };
+    });
   } catch (e) {
     el.innerHTML = '<span class="err-text">Timesheet fetch failed: ' + e.message + '</span>';
+  }
+}
+
+async function showTicketDetail(id) {
+  const box = $('ticketDetail');
+  box.style.display = 'block';
+  box.innerHTML = '<span style="color:var(--muted)">Loading ticket #' + id + '…</span>';
+  try {
+    const t = await api('/api/ticket?id=' + id);
+    const row = (label, val) => val
+      ? `<div style="margin:2px 0"><span style="color:var(--muted)">${label}:</span> ${val}</div>` : '';
+    box.innerHTML =
+      `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">` +
+      `<strong style="font-size:13px">#${t.id} — ${(t.summary||'').replace(/</g,'&lt;')}</strong>` +
+      `<a href="#" id="tdClose" style="color:var(--muted);text-decoration:none">✕</a></div>` +
+      row('Client', (t.client||'') + (t.site ? ' · ' + t.site : '')) +
+      row('Status', t.status) + row('Priority', t.priority) +
+      row('Agent', t.agent) + row('Category', t.category) +
+      (t.details ? `<div style="margin-top:6px;color:#cbd5e1;max-height:160px;overflow:auto">${(t.details||'').replace(/</g,'&lt;')}</div>` : '');
+    $('tdClose').onclick = ev => { ev.preventDefault(); box.style.display = 'none'; };
+  } catch (e) {
+    box.innerHTML = '<span class="err-text">Couldn\'t load ticket: ' + e.message + '</span>';
   }
 }
 
@@ -862,7 +867,6 @@ function showTab(name) {
   document.querySelectorAll('.pane').forEach(p =>
     p.classList.toggle('active', p.dataset.pane === name));
   if (name === 'history') loadPosted();
-  if (name === 'tickets') $('btnRefresh').click();
   if (name === 'timeline') loadTimeline();
 }
 document.querySelectorAll('nav button').forEach(b =>

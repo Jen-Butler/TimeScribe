@@ -142,6 +142,18 @@ def tickets(limit: int = 25):
             ]}
 
 
+@app.get("/api/ticket")
+def ticket_detail(id: int):
+    """One ticket's detail, for the timesheet click-through panel."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    try:
+        return a.get_ticket(id)
+    except Exception as exc:
+        raise HTTPException(502, str(exc))
+
+
 # ---------- Activity / digest ----------
 
 from datetime import date as _date
