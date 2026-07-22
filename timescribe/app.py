@@ -110,8 +110,27 @@ def _setup_frozen_logging():
     print(f"\n===== app start {datetime.now().isoformat(timespec='seconds')} =====")
 
 
+def _already_running() -> bool:
+    """True if another TimeScribe instance is serving the dashboard."""
+    import httpx
+    port = appconfig.load().get("ui_port", 8770)
+    try:
+        r = httpx.get(f"http://127.0.0.1:{port}/api/status", timeout=2,
+                      trust_env=False)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
 def main():
     _setup_frozen_logging()
+    # 0. Single-instance guard: a second launch (startup shortcut + manual
+    # click, say) would fail to bind the port and linger as a zombie tray
+    # icon. Instead, hand off to the running instance and exit.
+    if _already_running():
+        print("[app] another instance is already running; opening its dashboard and exiting")
+        open_dashboard()
+        return
     # 1. Backend in a daemon thread
     t = threading.Thread(target=_run_server, daemon=True)
     t.start()
