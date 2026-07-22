@@ -124,7 +124,7 @@ def _run_eod_safe(notify: Optional[Callable[[str, str], None]]) -> None:
         _state["last_eod"] = date_cls.today()
         if notify:
             notify("TimeScribe",
-                   f"{n} draft time entr{'y' if n == 1 else 'ies'} ready â€” open the dashboard to review.")
+                   f"{n} draft time entr{'y' if n == 1 else 'ies'} ready - open the dashboard to review.")
     except Exception as exc:
         _state["last_error"] = f"eod: {exc}"
         print(f"[scheduler] EOD run failed: {exc!r}")
