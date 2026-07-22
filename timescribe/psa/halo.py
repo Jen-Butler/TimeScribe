@@ -282,8 +282,13 @@ class HaloPSAAdapter(PSAAdapter):
         if chargerate is None:
             chargerate = cfg.get("halo_default_chargerate")
         if chargerate is not None:
-            item["chargerate"] = str(chargerate)
-            print(f"[halo] ticket {entry.ticket_id}: using chargerate {chargerate}")
+            # chargerate is an integer rate ID (e.g. 8 = Tier 3, 0 = No
+            # Charge). Halo rejects "0.0"/"8.0" -- send a plain integer.
+            try:
+                item["chargerate"] = str(int(float(chargerate)))
+            except (TypeError, ValueError):
+                item["chargerate"] = str(chargerate)
+            print(f"[halo] ticket {entry.ticket_id}: using chargerate {item['chargerate']}")
         else:
             print(f"[halo] ticket {entry.ticket_id}: no chargerate found; "
                   "outcome default will apply -- check billing on this action")
