@@ -321,6 +321,95 @@ class HaloPSAAdapter(PSAAdapter):
               f"rate-like fields: {candidates}")
         return None
 
+    def get_day_timesheet(self, day_start, day_end) -> list:
+        """Existing timesheet content for the logged-in agent for one day:
+        what Halo already has, so new entries can be fitted around it.
+
+        Halo's /Timesheet endpoint is temperamental (see field notes), so
+        fall back to /TimesheetEvent, then to appointments.
+        """
+        agent_id = self.current_agent_id
+        params = {
+            "start_date": day_start.strftime("%Y-%m-%dT%H:%M:%S"),
+            "end_date":   day_end.strftime("%Y-%m-%dT%H:%M:%S"),
+            "agents":     str(agent_id),
+        }
+        for endpoint in ("Timesheet", "TimesheetEvent"):
+            try:
+                raw = self._api_get(endpoint, params=params)
+            except Exception as exc:
+                print(f"[halo] GET {endpoint} failed: {exc}")
+                continue
+            rows = self._extract_rows(raw)
+            if rows is None:
+                print(f"[halo] GET {endpoint}: unrecognized shape, "
+                      f"keys={list(raw.keys())[:12] if isinstance(raw, dict) else type(raw)}")
+                continue
+            out = [self._normalize_ts_row(r) for r in rows]
+            out = [r for r in out if r]
+            print(f"[halo] {endpoint}: {len(out)} timesheet rows for agent {agent_id}")
+            return out
+        print("[halo] no timesheet endpoint worked; returning empty")
+        return []
+
+    @staticmethod
+    def _extract_rows(raw):
+        if isinstance(raw, list):
+            return raw
+        if isinstance(raw, dict):
+            for key in ("events", "timesheets", "appointments", "record_ids", "rows"):
+                if isinstance(raw.get(key), list):
+                    return raw[key]
+            # single-agent timesheet object with nested events
+            if isinstance(raw.get("agents"), list) and raw["agents"]:
+                a0 = raw["agents"][0]
+                for key in ("events", "appointments"):
+                    if isinstance(a0.get(key), list):
+                        return a0[key]
+        return None
+
+    @staticmethod
+    def _normalize_ts_row(r) -> Optional[dict]:
+        """Map a Halo timesheet-ish row to {start, end, hours, ticket_id,
+        subject, kind}, converting UTC timestamps to local."""
+        if not isinstance(r, dict):
+            return None
+
+        def _dtparse(val):
+            if not val:
+                return None
+            try:
+                s = str(val).replace("Z", "+00:00")
+                dt = datetime.fromisoformat(s)
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone().replace(tzinfo=None)   # -> local naive
+                return dt
+            except ValueError:
+                return None
+
+        start = _dtparse(r.get("start_date") or r.get("startdate")
+                         or r.get("actionarrivaldate"))
+        end = _dtparse(r.get("end_date") or r.get("enddate")
+                       or r.get("actioncompletiondate") or r.get("datetime"))
+        if start is None and end is None:
+            return None
+        hours = r.get("timetaken")
+        if hours is None and start and end:
+            hours = round((end - start).total_seconds() / 3600, 2)
+        tid = r.get("ticket_id") or r.get("faultid")
+        if isinstance(tid, (int, float)) and tid <= 0:
+            tid = None
+        return {
+            "start": start.strftime("%H:%M") if start else "",
+            "end": end.strftime("%H:%M") if end else "",
+            "hours": round(float(hours), 2) if hours is not None else None,
+            "ticket_id": tid,
+            "subject": (r.get("subject") or r.get("summary")
+                        or r.get("note") or "")[:120],
+            "kind": ("action" if r.get("actionid") or r.get("outcome")
+                     else "event"),
+        }
+
     def _create_quick_time_appointment(self, entry: TimeEntry) -> str:
         """Entries with no ticket -> a Halo timesheet event
         (POST /TimesheetEvent), which is how Halo's own UI logs

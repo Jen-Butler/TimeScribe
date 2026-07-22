@@ -426,6 +426,21 @@ def drafts_repost(body: DraftAction, day: str = None):
     return {"ok": True, "posted_id": posted_id}
 
 
+@app.get("/api/timesheet")
+def timesheet(day: str = None):
+    """What Halo already has on the logged-in agent's timesheet for a day."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    target = _date.fromisoformat(day) if day else _date.today()
+    from datetime import time as _time
+    rows = a.get_day_timesheet(_dt.combine(target, _time.min),
+                               _dt.combine(target, _time.max))
+    rows.sort(key=lambda r: r.get("start") or "99")
+    total = round(sum(r["hours"] for r in rows if r.get("hours")), 2)
+    return {"day": target.isoformat(), "total_hours": total, "rows": rows}
+
+
 # ---------- Logs ----------
 
 @app.get("/api/logs")
