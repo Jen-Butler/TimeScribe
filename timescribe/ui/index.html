@@ -161,6 +161,14 @@
     <div id="browserMsg" style="font-size:12px;margin-top:6px"></div>
   </div>
 
+  <div class="card" id="updateCard">
+    <h2>Updates
+      <button id="btnCheckUpdate" style="margin:0;padding:4px 12px;font-size:12px">Check for updates</button>
+    </h2>
+    <div id="updateStatus" style="font-size:12px;color:var(--muted)">Checking…</div>
+    <button id="btnApplyUpdate" style="margin-top:10px;display:none;background:var(--good)">Update now</button>
+  </div>
+
   <div class="card">
     <h2>Logs
       <button id="btnLogsRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
@@ -1010,6 +1018,41 @@ $('btnSaveBrowsers').onclick = async () => {
   }
 };
 loadBrowsers();
+
+// ---- updates ----
+async function checkUpdate(fetch) {
+  const el = $('updateStatus'), btn = $('btnApplyUpdate');
+  btn.style.display = 'none';
+  el.textContent = fetch ? 'Checking for updates…' : 'Loading…';
+  try {
+    const r = await api('/api/update/status?fetch=' + (fetch ? 'true' : 'false'));
+    if (!r.git) { el.textContent = r.note || 'Not a source install.'; return; }
+    if (r.error) { el.textContent = 'Update check error: ' + r.error; return; }
+    if (r.up_to_date) {
+      el.innerHTML = `Up to date on <strong>${r.branch}</strong> (${r.current}).`;
+      el.className = 'ok-text';
+    } else {
+      el.className = '';
+      el.innerHTML = `<strong style="color:var(--accent)">${r.behind} update(s) available</strong> on `
+        + `${r.branch}. Latest: ${r.latest}.`
+        + (r.dirty ? '<br><span class="err-text">Local changes present — update disabled until resolved.</span>' : '');
+      btn.style.display = r.dirty ? 'none' : '';
+    }
+  } catch (e) { el.textContent = 'Update check failed: ' + e.message; }
+}
+$('btnCheckUpdate').onclick = () => checkUpdate(true);
+$('btnApplyUpdate').onclick = async () => {
+  $('btnApplyUpdate').disabled = true;
+  $('updateStatus').textContent = 'Updating…';
+  try {
+    const r = await api('/api/update/apply', {method:'POST'});
+    $('updateStatus').innerHTML = '<strong class="ok-text">' + r.message + '</strong>';
+    $('btnApplyUpdate').style.display = 'none';
+  } catch (e) {
+    $('updateStatus').innerHTML = '<span class="err-text">Update failed: ' + e.message + '</span>';
+  } finally { $('btnApplyUpdate').disabled = false; }
+};
+checkUpdate(false);   // quick check on load (no network fetch)
 
 // ---- tab navigation ----
 // ---- activity timeline ----

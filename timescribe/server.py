@@ -828,6 +828,84 @@ def summary(day: str = None):
 from timescribe import scheduler as _scheduler
 
 
+# ---------- Self-update (source/git installs) ----------
+
+def _repo_dir():
+    """The git working tree, or None for frozen/installer builds."""
+    import sys
+    if getattr(sys, "frozen", False):
+        return None
+    d = Path(__file__).resolve().parent.parent
+    return d if (d / ".git").exists() else None
+
+
+def _git(args, cwd, timeout=60):
+    import subprocess
+    r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+                       text=True, timeout=timeout,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
+
+
+@app.get("/api/update/status")
+def update_status(fetch: bool = True):
+    """Report whether the local checkout is behind its remote branch."""
+    repo = _repo_dir()
+    if repo is None:
+        return {"git": False,
+                "note": "Not a source install — update via the installer/GitHub release."}
+    try:
+        _, branch, _ = _git(["rev-parse", "--abbrev-ref", "HEAD"], repo)
+        if fetch:
+            _git(["fetch", "--quiet", "origin"], repo, timeout=90)
+        _, local, _ = _git(["rev-parse", "HEAD"], repo)
+        rc, remote, _ = _git(["rev-parse", f"origin/{branch}"], repo)
+        _, behind, _ = _git(["rev-list", "--count", f"HEAD..origin/{branch}"], repo)
+        _, latest, _ = _git(["log", "-1", "--format=%h %s", f"origin/{branch}"], repo)
+        _, curmsg, _ = _git(["log", "-1", "--format=%h %s"], repo)
+        _, dirty, _ = _git(["status", "--porcelain"], repo)
+        n = int(behind) if behind.isdigit() else 0
+        return {"git": True, "branch": branch, "behind": n,
+                "current": curmsg, "latest": latest,
+                "dirty": bool(dirty.strip()),
+                "up_to_date": n == 0 and rc == 0}
+    except Exception as exc:
+        return {"git": True, "error": str(exc)}
+
+
+@app.post("/api/update/apply")
+def update_apply():
+    """Fast-forward pull the current branch and refresh dependencies.
+    A restart is required afterward to load the new backend code."""
+    import sys
+    repo = _repo_dir()
+    if repo is None:
+        raise HTTPException(400, "Not a source install")
+    _, branch, _ = _git(["rev-parse", "--abbrev-ref", "HEAD"], repo)
+    _, dirty, _ = _git(["status", "--porcelain"], repo)
+    if dirty.strip():
+        raise HTTPException(409, "Local changes present — resolve them before updating.")
+    rc, out, err = _git(["pull", "--ff-only", "origin", branch], repo, timeout=120)
+    if rc != 0:
+        raise HTTPException(502, f"git pull failed: {err or out}")
+    # Pick up any new/updated dependencies (best-effort, non-fatal).
+    dep_note = ""
+    try:
+        import subprocess
+        pr = subprocess.run([sys.executable, "-m", "pip", "install", "-e", str(repo),
+                             "--quiet"], capture_output=True, text=True, timeout=300,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if pr.returncode != 0:
+            dep_note = " (dependency refresh reported an issue; check logs)"
+            print(f"[update] pip install issue: {pr.stderr[:400]}")
+    except Exception as exc:
+        dep_note = " (couldn't refresh dependencies automatically)"
+        print(f"[update] pip step failed: {exc}")
+    print(f"[update] pulled {branch}: {out}")
+    return {"ok": True, "output": out,
+            "message": "Updated. Quit and relaunch TimeScribe to apply." + dep_note}
+
+
 @app.post("/api/open-dashboard")
 def open_dashboard_ep():
     """Let a second launch ask the running instance to show its dashboard
