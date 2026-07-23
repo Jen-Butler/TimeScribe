@@ -47,6 +47,73 @@ def set_status(d: date_cls, index: int, status: str,
     return items[index]
 
 
+def _ignored_path(d: date_cls) -> Path:
+    return _dir() / f"{d.isoformat()}.ignored.json"
+
+
+def load_ignored(d: date_cls) -> List[dict]:
+    p = _ignored_path(d)
+    if not p.exists():
+        return []
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def add_ignored(d: date_cls, item: dict) -> None:
+    """Remember an entry the user dismissed so regenerated digests don't
+    resurface it. We store a light signature (time window + ticket)."""
+    sig = {
+        "start_time": item.get("start_time", ""),
+        "end_time": item.get("end_time", ""),
+        "ticket_id": item.get("ticket_id"),
+        "note": (item.get("note") or "")[:80],
+    }
+    ig = load_ignored(d)
+    ig.append(sig)
+    _ignored_path(d).write_text(json.dumps(ig, indent=2), encoding="utf-8")
+
+
+def _overlap_min(a_s, a_e, b_s, b_e) -> int:
+    lo, hi = max(a_s, b_s), min(a_e, b_e)
+    return max(0, hi - lo)
+
+
+def is_ignored(item: dict, ignored: List[dict]) -> bool:
+    """A new draft matches an ignored one if it's for the same ticket
+    (both None counts as same) and its time window substantially overlaps
+    the ignored window -- tolerant of the AI shifting times between runs."""
+    def _mins(hm):
+        try:
+            h, m = map(int, (hm or "").split(":"))
+            return h * 60 + m
+        except (ValueError, AttributeError):
+            return None
+    s, e = _mins(item.get("start_time")), _mins(item.get("end_time"))
+    if s is None or e is None or e <= s:
+        return False
+    for ig in ignored:
+        if (ig.get("ticket_id") or None) != (item.get("ticket_id") or None):
+            continue
+        igs, ige = _mins(ig.get("start_time")), _mins(ig.get("end_time"))
+        if igs is None or ige is None or ige <= igs:
+            continue
+        overlap = _overlap_min(s, e, igs, ige)
+        shorter = min(e - s, ige - igs)
+        if shorter > 0 and overlap / shorter >= 0.5:
+            return True
+    return False
+
+
+def filter_ignored(d: date_cls, items: List[dict]) -> List[dict]:
+    """Drop items matching this day's ignore list."""
+    ig = load_ignored(d)
+    if not ig:
+        return items
+    return [it for it in items if not is_ignored(it, ig)]
+
+
 def _minutes(start_hm: str, end_hm: str) -> int:
     try:
         sh, sm = map(int, start_hm.split(":"))

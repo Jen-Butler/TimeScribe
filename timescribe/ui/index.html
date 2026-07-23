@@ -189,6 +189,7 @@
         </div>
         <div id="draftList" style="font-size:13px"></div>
         <div id="postedTodayList" style="font-size:13px;display:none"></div>
+        <div id="ignoredBox"></div>
       </div>
       <div style="flex:2;min-width:300px;border-left:1px solid #334155;padding-left:16px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -310,7 +311,7 @@ $('btnConnect').onclick = async () => {
 
 refreshStatus();
 $('dayPick').value = new Date().toISOString().slice(0,10);
-$('dayPick').onchange = () => { loadDigest(); loadDrafts(); loadSummary(); loadTimesheet(); };
+$('dayPick').onchange = () => { loadDigest(); loadDrafts(); loadSummary(); loadTimesheet(); loadIgnored(); };
 
 function selDay() {
   return $('dayPick').value || new Date().toISOString().slice(0,10);
@@ -408,6 +409,7 @@ function draftRow(d, i) {
       btns.appendChild(mk('Reject', 'var(--bad)', () => draftAction(i, 'reject')));
     btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
     btns.appendChild(mk('Delete', '#64748b', () => deleteDraft(i)));
+    btns.appendChild(mk('Ignore', '#7c2d12', () => ignoreDraft(i)));
   } else {
     // Posted entries: editable, then reposted as a fresh Halo action with
     // whatever's currently in the fields.
@@ -426,6 +428,51 @@ async function deleteDraft(i) {
     setMsg('Entry removed.', true);
     loadDrafts(); loadSummary();
   } catch (e) { setMsg('Delete failed: ' + e.message, false); }
+}
+
+async function ignoreDraft(i) {
+  if (!confirm('Ignore this entry? It will be removed and won\'t come back when the digest re-runs.')) return;
+  try {
+    await api('/api/drafts/ignore?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index: i, action: 'ignore'})});
+    setMsg('Ignored — this activity won\'t resurface today.', true);
+    loadDrafts(); loadSummary(); loadIgnored();
+  } catch (e) { setMsg('Ignore failed: ' + e.message, false); }
+}
+
+async function loadIgnored() {
+  const box = $('ignoredBox');
+  if (!box) return;
+  try {
+    const r = await api('/api/drafts/ignored?day=' + selDay());
+    if (!r.ignored.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<div style="color:var(--muted);font-size:11px;margin:8px 0 4px">`
+      + `Ignored today (${r.ignored.length}) — won't be regenerated:</div>`;
+    r.ignored.forEach((g, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;align-items:baseline;font-size:11px;color:var(--muted);padding:2px 0';
+      row.innerHTML = `<span>${g.start_time}–${g.end_time}</span>`
+        + `<span>${g.ticket_id ? '#'+g.ticket_id : 'no ticket'}</span>`
+        + `<span style="flex:1">${(g.note||'').replace(/</g,'&lt;')}</span>`;
+      const b = document.createElement('button');
+      b.textContent = 'Restore';
+      b.style.cssText = 'margin:0;padding:2px 8px;font-size:11px;background:#334155';
+      b.onclick = () => unignore(idx);
+      row.appendChild(b);
+      box.appendChild(row);
+    });
+  } catch (e) { /* ignore */ }
+}
+
+async function unignore(idx) {
+  try {
+    await api('/api/drafts/unignore?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index: idx, action: 'unignore'})});
+    setMsg('Restored — it can appear again on the next digest.', true);
+    loadIgnored();
+  } catch (e) { setMsg('Restore failed: ' + e.message, false); }
 }
 
 async function repostDraft(i) {
@@ -618,6 +665,7 @@ $('btnPostDrafts').onclick = async () => {
 
 loadDrafts();
 loadTimesheet();
+loadIgnored();
 
 async function loadSched() {
   try {

@@ -253,6 +253,7 @@ def drafts_generate(day: str = None):
             "client": "", "subject": "(unassigned)",
             "status": "draft",
         })
+    new_items = _drafts.filter_ignored(target, new_items)
     _drafts.save(target, posted + new_items)
     return {"drafts": new_items, "preserved_posted": len(posted)}
 
@@ -354,6 +355,41 @@ def drafts_delete(body: DraftAction, day: str = None):
     removed = items.pop(body.index)
     _drafts.save(target, items)
     return {"ok": True, "removed": removed.get("note", "")[:60], "count": len(items)}
+
+
+@app.post("/api/drafts/ignore")
+def drafts_ignore(body: DraftAction, day: str = None):
+    """Remove an entry AND remember it, so future digests don't resurface
+    the same activity. Only for unposted entries."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    if not (0 <= body.index < len(items)):
+        raise HTTPException(404, "draft index out of range")
+    if items[body.index].get("status") == "posted":
+        raise HTTPException(400, "can't ignore a posted entry")
+    ignored = items.pop(body.index)
+    _drafts.add_ignored(target, ignored)
+    _drafts.save(target, items)
+    return {"ok": True, "count": len(items)}
+
+
+@app.get("/api/drafts/ignored")
+def drafts_ignored_list(day: str = None):
+    target = _date.fromisoformat(day) if day else _date.today()
+    return {"day": target.isoformat(), "ignored": _drafts.load_ignored(target)}
+
+
+@app.post("/api/drafts/unignore")
+def drafts_unignore(body: DraftAction, day: str = None):
+    """Remove an entry from the day's ignore list (index into that list)."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    ig = _drafts.load_ignored(target)
+    if not (0 <= body.index < len(ig)):
+        raise HTTPException(404, "ignored index out of range")
+    ig.pop(body.index)
+    _drafts._ignored_path(target).write_text(__import__("json").dumps(ig, indent=2),
+                                             encoding="utf-8")
+    return {"ok": True, "count": len(ig)}
 
 
 class DraftUpdate(BaseModel):

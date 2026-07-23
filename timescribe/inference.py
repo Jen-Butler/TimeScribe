@@ -223,9 +223,11 @@ def build_combined(adapter, target: Optional[date_cls] = None,
 
     existing = drafts.load(target)
     posted = [x for x in existing if x.get("status") == "posted"]
+    new_items = drafts.filter_ignored(target, new_items)
     drafts.save(target, posted + new_items)
     print(f"[combined] {len(resp.entries)} digest entries, "
-          f"{len(resp.drafts)} matched drafts, {len(resp.unmatched)} unmatched")
+          f"{len(resp.drafts)} matched drafts, {len(resp.unmatched)} unmatched "
+          f"({len(drafts.load_ignored(target))} ignored signatures active)")
     return {"entries": resp.entries, "drafts": new_items,
             "unmatched": [u.model_dump() for u in resp.unmatched],
             "preserved_posted": len(posted)}
@@ -296,6 +298,7 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
     # Preserve already-posted drafts, replace the rest
     existing = drafts.load(target)
     posted = [x for x in existing if x.get("status") == "posted"]
+    new_items = drafts.filter_ignored(target, new_items)
     drafts.save(target, posted + new_items)
 
     return {
