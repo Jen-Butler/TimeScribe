@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>TimeScribe</title>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0f172a">
 <style>
   :root { --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8;
           --accent:#38bdf8; --good:#4ade80; --bad:#f87171; }
@@ -167,6 +169,10 @@
     </h2>
     <div id="updateStatus" style="font-size:12px;color:var(--muted)">Checking…</div>
     <button id="btnApplyUpdate" style="margin-top:10px;display:none;background:var(--good)">Update now</button>
+    <button id="btnRestart" style="margin-top:10px;background:#334155">Restart TimeScribe</button>
+    <p style="color:var(--muted);font-size:11px;margin-top:8px">
+      Tip: in the app window's ⋯ menu (or the address bar), choose <em>Install TimeScribe</em>
+      to pin it as its own app with the TimeScribe icon.</p>
   </div>
 
   <div class="card">
@@ -1053,6 +1059,19 @@ $('btnApplyUpdate').onclick = async () => {
   } finally { $('btnApplyUpdate').disabled = false; }
 };
 checkUpdate(false);   // quick check on load (no network fetch)
+
+$('btnRestart').onclick = async () => {
+  if (!confirm('Restart TimeScribe now? The dashboard will reconnect in a few seconds.')) return;
+  try {
+    await api('/api/restart', {method:'POST'});
+    $('updateStatus').innerHTML = '<strong>Restarting… this window will reconnect shortly.</strong>';
+    setTimeout(() => location.reload(), 6000);
+  } catch (e) {
+    // The process may exit before responding — that's expected.
+    $('updateStatus').innerHTML = '<strong>Restarting…</strong>';
+    setTimeout(() => location.reload(), 6000);
+  }
+};
 
 // ---- tab navigation ----
 // ---- activity timeline ----

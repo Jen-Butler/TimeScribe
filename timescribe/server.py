@@ -58,6 +58,26 @@ def favicon():
     return Response(status_code=404)
 
 
+@app.get("/manifest.webmanifest")
+def manifest():
+    from fastapi.responses import FileResponse, Response
+    m = _ui_path().parent / "manifest.webmanifest"
+    if m.exists():
+        return FileResponse(str(m), media_type="application/manifest+json")
+    return Response(status_code=404)
+
+
+@app.get("/{asset:path}.png")
+def ui_png(asset: str):
+    """Serve PWA icon PNGs from the ui/ folder (icon-192, icon-512)."""
+    from fastapi.responses import FileResponse, Response
+    p = (_ui_path().parent / f"{asset}.png").resolve()
+    # keep it inside the ui dir
+    if p.exists() and str(p).startswith(str(_ui_path().parent.resolve())):
+        return FileResponse(str(p), media_type="image/png")
+    return Response(status_code=404)
+
+
 # ---------- API ----------
 
 class ConfigUpdate(BaseModel):
@@ -904,6 +924,26 @@ def update_apply():
     print(f"[update] pulled {branch}: {out}")
     return {"ok": True, "output": out,
             "message": "Updated. Quit and relaunch TimeScribe to apply." + dep_note}
+
+
+@app.post("/api/restart")
+def restart_app():
+    """Relaunch TimeScribe: spawn a detached helper that waits for this
+    process to exit (freeing the port), then starts a fresh instance."""
+    import sys, subprocess, os, threading
+    py = sys.executable  # pythonw for the tray app
+    try:
+        # cmd helper: wait ~2s for the old process to die, then relaunch.
+        subprocess.Popen(
+            ["cmd", "/c", f'timeout /t 2 /nobreak >nul & start "" "{py}" -m timescribe app'],
+            creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                           | getattr(subprocess, "DETACHED_PROCESS", 0)),
+        )
+    except Exception as exc:
+        raise HTTPException(500, f"couldn't schedule relaunch: {exc}")
+    # Give the HTTP response time to return, then hard-exit the whole process.
+    threading.Timer(0.7, lambda: os._exit(0)).start()
+    return {"ok": True, "message": "Restarting TimeScribe…"}
 
 
 @app.post("/api/open-dashboard")
