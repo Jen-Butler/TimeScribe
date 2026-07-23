@@ -49,6 +49,15 @@ def index():
     return _ui_path().read_text(encoding="utf-8")
 
 
+@app.get("/favicon.ico")
+def favicon():
+    from fastapi.responses import FileResponse, Response
+    ico = _ui_path().parent / "favicon.ico"
+    if ico.exists():
+        return FileResponse(str(ico), media_type="image/x-icon")
+    return Response(status_code=404)
+
+
 # ---------- API ----------
 
 class ConfigUpdate(BaseModel):
