@@ -605,8 +605,10 @@ async function loadTimesheet() {
   try {
     const r = await api('/api/timesheet?day=' + selDay());
     const h = x => x != null ? (Math.round(x * 100) / 100) + 'h' : '?';
-    el.innerHTML = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">` +
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px;line-height:1.6">` +
       `<strong style="color:var(--text)">${h(r.actual_hours)}</strong> logged · ` +
+      `<strong style="color:var(--good)">${h(r.billable_hours)}</strong> billable · ` +
+      `${h(r.nonbillable_hours)} no-charge<br>` +
       `target ${h(r.target_hours)} · ` +
       `<strong style="color:var(--bad)">${h(r.unlogged_hours)}</strong> unlogged</div>`;
     if (!r.rows.length) {
@@ -759,15 +761,28 @@ $('btnLogsRefresh').onclick = loadLogs;
 $('logLines').onchange = loadLogs;
 
 async function loadSummary() {
+  // TimeScribe pipeline (activity + local drafts) on the left; Halo timesheet
+  // actuals on the right — both billing numbers come from Halo so they match
+  // the Halo timesheet panel exactly.
+  const hh = x => x != null ? (Math.round(x * 100) / 100) + 'h' : '—';
+  let left = '', right = '';
   try {
     const s = await api('/api/summary?day=' + selDay());
-    $('sumStrip').innerHTML =
-      `<span><strong style="color:var(--text)">${fmtH(s.captured_minutes)}</strong> captured</span>` +
+    left =
+      `<span><strong style="color:var(--text)">${fmtH(s.captured_minutes)}</strong> captured (activity)</span>` +
       `<span><strong style="color:var(--muted)">${fmtH(s.draft_minutes)}</strong> drafted</span>` +
-      `<span><strong style="color:var(--good)">${fmtH(s.approved_minutes)}</strong> approved</span>` +
-      `<span><strong style="color:var(--accent)">${fmtH(s.posted_minutes)}</strong> posted</span>` +
-      `<span><strong style="color:var(--bad)">${fmtH(s.unbilled_minutes)}</strong> unbilled</span>`;
+      `<span><strong style="color:var(--good)">${fmtH(s.approved_minutes)}</strong> approved</span>`;
   } catch (e) { /* ignore */ }
+  try {
+    const t = await api('/api/timesheet?day=' + selDay());
+    right =
+      `<span style="color:#475569">|</span>` +
+      `<span><strong style="color:var(--accent)">${hh(t.actual_hours)}</strong> logged in Halo</span>` +
+      `<span><strong style="color:var(--good)">${hh(t.billable_hours)}</strong> billable</span>` +
+      `<span><strong style="color:var(--bad)">${hh(t.unlogged_hours)}</strong> unlogged</span>` +
+      `<span style="color:var(--muted)">of ${hh(t.target_hours)} target</span>`;
+  } catch (e) { /* Halo not connected — pipeline only */ }
+  $('sumStrip').innerHTML = left + right;
 }
 
 async function loadPosted() {
