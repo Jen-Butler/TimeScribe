@@ -108,6 +108,11 @@ DRAFT rules:
 - The FOCUSED (active) window is what the user was actually doing at a given
   moment; weight it above background browser tabs when deciding the ticket
   for that minute.
+- CALENDAR MEETINGS are authoritative for their own time block: attribute
+  that span to the meeting's ticket (or the meeting's client, matching to
+  that client's ticket) even if the meeting was never the focused window --
+  the user was in the meeting. A Teams/online meeting from 10:00-10:30 with
+  a client is billable time for that client, not idle/AFK.
 - Round to nearest 5 min. Minimum entry 10 min. confidence: 0.9+ explicit
   ticket/subject evidence; 0.7-0.9 strong client+topic; below 0.7 -> unmatched.
 - General/internal activity (email triage, team meetings, this app) ->
@@ -165,10 +170,26 @@ def build_combined(adapter, target: Optional[date_cls] = None,
     cfg = appconfig.load()
     win_lo, win_hi = since.strftime("%H:%M"), until.strftime("%H:%M")
     ticket_lines = [f"[#{t.id}] [{t.client}] {t.subject[:100]}" for t in tickets]
+
+    # Calendar appointments from Halo -- authoritative attribution for
+    # meeting time even when the meeting window was never focused.
+    meeting_lines = []
+    try:
+        for m in adapter.get_day_meetings(since, until):
+            tag = "Teams" if m["is_teams"] else ("online" if m["online"] else "meeting")
+            tkt = f" ticket #{m['ticket_id']}" if m["ticket_id"] else ""
+            cli = f" [{m['client']}]" if m["client"] else ""
+            meeting_lines.append(
+                f"{m['start']}-{m['end']} [{tag}]{cli}{tkt}: {m['subject']}")
+    except Exception as exc:
+        print(f"[combined] meeting fetch failed (continuing): {exc}")
+
     user_prompt = (
         f"Date: {target.isoformat()} (window {win_lo}-{win_hi})\n\n"
         f"RAW ACTIVITY FEED:\n---\n{feed}\n---\n\n"
-        f"OPEN TICKETS ({len(ticket_lines)}):\n" + "\n".join(ticket_lines)
+        + (f"CALENDAR MEETINGS ({len(meeting_lines)}):\n"
+           + "\n".join(meeting_lines) + "\n\n" if meeting_lines else "")
+        + f"OPEN TICKETS ({len(ticket_lines)}):\n" + "\n".join(ticket_lines)
         + f"\n\nAll time_ranges must fall within {win_lo}-{win_hi}. "
         "Produce the JSON described in the system prompt."
     )

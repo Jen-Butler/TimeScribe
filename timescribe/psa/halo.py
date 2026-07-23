@@ -447,6 +447,70 @@ class HaloPSAAdapter(PSAAdapter):
         rec = resp[0] if isinstance(resp, list) and resp else resp
         return str((rec or {}).get("id") or "")
 
+    def get_day_meetings(self, since, until) -> list:
+        """Calendar appointments for the day, as attribution signals for the
+        digest. Halo flags Teams/online meetings and links them to a ticket
+        and/or client -- so meeting time can be attributed even when the
+        meeting window was never the focused app.
+
+        Returns [{start, end, subject, ticket_id, client, is_teams, online}]
+        with local HH:MM times.
+        """
+        from datetime import timezone as _tzu
+        raw = self._api_get("Appointment", params={
+            "start_date": since.strftime("%Y-%m-%dT%H:%M:%S"),
+            "end_date":   until.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
+        rows = raw if isinstance(raw, list) else (raw.get("appointments") or [])
+
+        def _dt(v):
+            if not v:
+                return None
+            try:
+                d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+                if d.tzinfo is None:
+                    d = d.replace(tzinfo=_tzu.utc)
+                return d.astimezone().replace(tzinfo=None)
+            except ValueError:
+                return None
+
+        logged_keys = False
+        out = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            s, e = _dt(r.get("start_date")), _dt(r.get("end_date"))
+            if s is None:
+                continue
+            # Teams/online detection: Halo exposes this under a few names
+            # across versions; also sniff a join URL / location text.
+            blob = " ".join(str(r.get(k) or "") for k in
+                            ("online_meeting_url", "teams_url", "location",
+                             "appointment_type_name", "subject")).lower()
+            is_teams = bool(r.get("teams_meeting") or r.get("is_teams")
+                            or "teams.microsoft.com" in blob
+                            or "teams meeting" in blob)
+            online = bool(r.get("online_meeting") or r.get("is_online")
+                          or is_teams or "zoom.us" in blob or "meet.google" in blob)
+            tid = r.get("ticket_id")
+            if isinstance(tid, (int, float)) and tid <= 0:
+                tid = None
+            if not logged_keys:
+                print(f"[halo] appointment keys sample: {sorted(r.keys())[:20]}")
+                logged_keys = True
+            out.append({
+                "start": s.strftime("%H:%M"),
+                "end": e.strftime("%H:%M") if e else "",
+                "subject": (r.get("subject") or "")[:150],
+                "ticket_id": tid,
+                "client": r.get("client_name") or r.get("customer") or "",
+                "is_teams": is_teams,
+                "online": online,
+            })
+        out.sort(key=lambda m: m["start"])
+        print(f"[halo] {len(out)} calendar appointments for the day")
+        return out
+
     def list_calendar_events(self, from_dt, to_dt) -> List[CalendarEvent]:
         raw = self._api_get("Appointment", params={
             "start_date": from_dt.strftime("%Y-%m-%dT%H:%M:%S"),
