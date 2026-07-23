@@ -175,9 +175,17 @@
     <datalist id="ticketOptions"></datalist>
     <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
       <div style="flex:3;min-width:360px">
-        <div style="display:flex;gap:4px;margin-bottom:8px">
+        <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
           <button id="subDrafts" class="subtab active-subtab" style="margin:0;padding:4px 14px;font-size:12px">Drafts</button>
           <button id="subPosted" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:#334155">Posted</button>
+          <label style="margin:0 0 0 auto;font-size:11px;color:var(--muted)">Sort
+            <select id="draftSort" style="width:auto;padding:3px 6px;font-size:11px;margin-left:4px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text)">
+              <option value="smart">Status</option>
+              <option value="start_asc">Start ↑</option>
+              <option value="start_desc">Start ↓</option>
+              <option value="end_asc">End ↑</option>
+              <option value="end_desc">End ↓</option>
+            </select></label>
         </div>
         <div id="draftList" style="font-size:13px"></div>
         <div id="postedTodayList" style="font-size:13px;display:none"></div>
@@ -454,6 +462,7 @@ function showSubTab(which) {
 }
 $('subDrafts').onclick = () => showSubTab('drafts');
 $('subPosted').onclick = () => showSubTab('posted');
+$('draftSort').onchange = () => loadDrafts();
 $('btnTsRefresh').onclick = () => loadTimesheet();
 
 async function loadTimesheet() {
@@ -493,6 +502,25 @@ async function loadTimesheet() {
   }
 }
 
+function _toMin(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm || '');
+  return m ? (+m[1]) * 60 + (+m[2]) : 99999;   // missing times sort last
+}
+function sortDraftPairs(pairs) {
+  const mode = ($('draftSort') && $('draftSort').value) || 'smart';
+  if (mode === 'smart') {
+    // actionable first (draft > approved > rejected), then confidence desc
+    const order = {draft: 0, approved: 1, rejected: 2};
+    pairs.sort((a, b) =>
+      (order[a[0].status] ?? 9) - (order[b[0].status] ?? 9)
+      || (b[0].confidence || 0) - (a[0].confidence || 0));
+    return;
+  }
+  const field = mode.startsWith('start') ? 'start_time' : 'end_time';
+  const dir = mode.endsWith('desc') ? -1 : 1;
+  pairs.sort((a, b) => (_toMin(a[0][field]) - _toMin(b[0][field])) * dir);
+}
+
 async function loadDrafts() {
   try {
     const r = await api('/api/drafts?day=' + selDay());
@@ -502,17 +530,13 @@ async function loadDrafts() {
     const el = $('draftList');
     el.innerHTML = active.length ? '' :
       '<span style="color:var(--muted)">No drafts. Run the digest, then click generate.</span>';
-    // Display order: actionable first (draft > approved > rejected),
-    // then by confidence desc. Original index preserved for actions.
-    const order = {draft: 0, approved: 1, rejected: 2};
-    active.sort((a, b) =>
-      (order[a[0].status] ?? 9) - (order[b[0].status] ?? 9)
-      || (b[0].confidence || 0) - (a[0].confidence || 0));
+    sortDraftPairs(active);
     active.forEach(([d, i]) => el.appendChild(draftRow(d, i)));
 
     const pl = $('postedTodayList');
     pl.innerHTML = posted.length ? '' :
       '<span style="color:var(--muted)">Nothing posted yet today.</span>';
+    sortDraftPairs(posted);
     posted.forEach(([d, i]) => pl.appendChild(draftRow(d, i)));
 
     $('subDrafts').textContent = `Drafts (${active.length})`;
