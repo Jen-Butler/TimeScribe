@@ -29,9 +29,17 @@ DEFAULTS: Dict[str, Any] = {
     "ui_port": 8770,
     "auto_digest_enabled": True,
     "aw_host": "http://127.0.0.1:5600",
-    "llm_provider": "anthropic",
+    "llm_provider": "anthropic",   # anthropic | openai | halo_org | mcp
     "openai_model_default": "gpt-4o-mini",
     "openai_model_planner": "gpt-4o",
+    # Org-shared AI: admin stores the key in an ENCRYPTED custom field on a
+    # Halo client (the org's own/house client). Connected clients read it
+    # back via the authenticated API. Never plaintext, never in this file.
+    "org_ai_client_id": 0,             # Halo client id holding the field
+    "org_ai_field_name": "CFTimeScribeAIKey",   # encrypted custom field name
+    "org_ai_provider": "openai",       # underlying provider of the org key
+    "org_ai_model_default": "gpt-4o-mini",
+    "org_ai_model_planner": "gpt-4o",
     "digest_interval_minutes": 120,
     "eod_time": "17:15",
     # Which weekdays the scheduler runs (0=Mon .. 6=Sun). Default Mon-Fri.

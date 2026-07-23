@@ -41,6 +41,8 @@ def _llm_key_available() -> bool:
     provider = (cfg.get("llm_provider") or "anthropic").lower()
     if provider == "mcp":
         return False        # MCP-only mode: no in-app LLM, no auto-digest
+    if provider == "halo_org":
+        return appconfig.get_secret("org_ai_key") is not None
     if provider == "openai":
         return appconfig.get_secret("openai_api_key") is not None
     return appconfig.get_secret("anthropic_api_key") is not None

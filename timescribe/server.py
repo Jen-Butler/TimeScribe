@@ -90,6 +90,7 @@ def status():
         "agent": agent,
         "anthropic_key_set": appconfig.get_secret("anthropic_api_key") is not None,
         "openai_key_set": appconfig.get_secret("openai_api_key") is not None,
+        "org_ai_key_set": appconfig.get_secret("org_ai_key") is not None,
         "llm_provider": cfg.get("llm_provider", "anthropic"),
         "config": {k: v for k, v in cfg.items() if "key" not in k.lower()},
     }
@@ -109,6 +110,54 @@ def set_secret(body: SecretUpdate):
     if body.name not in ("anthropic_api_key", "openai_api_key"):
         raise HTTPException(400, "unknown secret name")
     appconfig.set_secret(body.name, body.value.strip())
+    return {"ok": True}
+
+
+@app.post("/api/org_ai/fetch")
+def org_ai_fetch():
+    """Pull the org-shared AI key from the encrypted Halo custom field and
+    cache it locally (Credential Manager). Techs run this once after
+    connecting; the key is never shown."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    cfg = appconfig.load()
+    cid = int(cfg.get("org_ai_client_id") or 0)
+    if not cid:
+        raise HTTPException(400, "No org AI client id configured yet")
+    key = a.get_org_ai_key(cid, cfg.get("org_ai_field_name", "CFTimeScribeAIKey"))
+    if not key:
+        raise HTTPException(404, "No org AI key found on that client "
+                            "(admin hasn't published one, or it's not readable)")
+    appconfig.set_secret("org_ai_key", key)
+    return {"ok": True, "provider": cfg.get("org_ai_provider", "openai")}
+
+
+class OrgAIPublish(BaseModel):
+    client_id: int
+    field_name: Optional[str] = None
+    provider: Optional[str] = None
+    key: str
+
+
+@app.post("/api/org_ai/publish")
+def org_ai_publish(body: OrgAIPublish):
+    """Admin helper: store the org AI key into the encrypted custom field on
+    the given Halo client, and record the client/provider in config."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    cfg = appconfig.load()
+    field = body.field_name or cfg.get("org_ai_field_name", "CFTimeScribeAIKey")
+    try:
+        a.publish_org_ai_key(body.client_id, field, body.key.strip())
+    except Exception as exc:
+        raise HTTPException(502, str(exc))
+    cfg["org_ai_client_id"] = body.client_id
+    cfg["org_ai_field_name"] = field
+    if body.provider:
+        cfg["org_ai_provider"] = body.provider
+    appconfig.save(cfg)
     return {"ok": True}
 
 

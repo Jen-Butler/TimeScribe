@@ -337,6 +337,47 @@ class HaloPSAAdapter(PSAAdapter):
                             or r.get("actisdeleted"))
         return False
 
+    @staticmethod
+    def _find_customfield(rec: dict, name: str):
+        """Return a client record's custom field value by field name."""
+        cfs = rec.get("customfields") or rec.get("customFields") or []
+        for cf in cfs if isinstance(cfs, list) else []:
+            if not isinstance(cf, dict):
+                continue
+            if (cf.get("name") or "").lower() == name.lower():
+                return cf.get("value")
+        return None
+
+    def get_org_ai_key(self, client_id: int, field_name: str) -> Optional[str]:
+        """Read the org-shared AI key from an ENCRYPTED custom field on a
+        Halo client. Halo returns the decrypted value only to authorized
+        agents; returns None if unset or not permitted."""
+        if not client_id:
+            return None
+        try:
+            rec = self._api_get(f"Client/{client_id}")
+        except Exception as exc:
+            print(f"[halo] org AI key read failed (client {client_id}): {exc}")
+            return None
+        val = self._find_customfield(rec, field_name)
+        if val:
+            print(f"[halo] loaded org AI key from client {client_id} field '{field_name}'")
+            return str(val)
+        print(f"[halo] client {client_id} has no value in field '{field_name}' "
+              "(unset, or the field isn't readable by this agent)")
+        return None
+
+    def publish_org_ai_key(self, client_id: int, field_name: str, key: str) -> None:
+        """Admin helper: write the org AI key into the encrypted custom
+        field on the client. Requires the field to exist (created once in
+        Halo config as an encrypted custom field on the Client entity)."""
+        if not client_id:
+            raise RuntimeError("no org_ai_client_id configured")
+        item = {"id": client_id,
+                "customfields": [{"name": field_name, "value": key}]}
+        self._api_post("Client", [item])
+        print(f"[halo] published org AI key to client {client_id} field '{field_name}'")
+
     def get_ticket(self, ticket_id) -> dict:
         """Fetch one ticket's detail for the timesheet click-through panel."""
         t = self._api_get(f"Tickets/{ticket_id}")

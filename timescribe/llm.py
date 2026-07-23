@@ -15,9 +15,14 @@ from timescribe import appconfig
 
 
 def _resolve(model: Optional[str]) -> Tuple[str, str]:
-    """Return (provider, model) honoring config + per-call override."""
+    """Return (provider, model) honoring config + per-call override.
+    'halo_org' resolves to its underlying provider (the org key's provider)."""
     cfg = appconfig.load()
     provider = (cfg.get("llm_provider") or "anthropic").lower()
+    if provider == "halo_org":
+        provider = (cfg.get("org_ai_provider") or "openai").lower()
+        default = cfg.get("org_ai_model_default", "gpt-4o-mini")
+        return (provider, model or default)
     if provider == "openai":
         m = model or cfg.get("openai_model_default", "gpt-4o-mini")
     else:
@@ -26,11 +31,22 @@ def _resolve(model: Optional[str]) -> Tuple[str, str]:
     return provider, m
 
 
+def _api_key_for(provider: str) -> Optional[str]:
+    """The key to use for a provider. In org mode, the shared org key
+    (fetched from Halo, cached in the credential store) takes precedence."""
+    cfg = appconfig.load()
+    if (cfg.get("llm_provider") or "").lower() == "halo_org":
+        org = appconfig.get_secret("org_ai_key")
+        if org:
+            return org
+    return appconfig.get_secret(f"{provider}_api_key")
+
+
 def _call_anthropic(system_prompt, messages, model, temperature, max_tokens) -> str:
     from anthropic import Anthropic
-    key = appconfig.get_secret("anthropic_api_key")
+    key = _api_key_for("anthropic")
     if not key:
-        raise RuntimeError("No Anthropic API key set. Add it in the Setup card.")
+        raise RuntimeError("No Anthropic API key available (personal or org).")
     client = Anthropic(api_key=key)
     resp = client.messages.create(
         model=model, max_tokens=max_tokens, temperature=temperature,
@@ -44,9 +60,9 @@ def _call_openai(system_prompt, messages, model, temperature, max_tokens) -> str
         from openai import OpenAI
     except ImportError:
         raise RuntimeError("openai package not installed. Run: pip install openai")
-    key = appconfig.get_secret("openai_api_key")
+    key = _api_key_for("openai")
     if not key:
-        raise RuntimeError("No OpenAI API key set. Add it in the Setup card.")
+        raise RuntimeError("No OpenAI API key available (personal or org).")
     client = OpenAI(api_key=key)
     oai_messages = [{"role": "system", "content": system_prompt}] + messages
     resp = client.chat.completions.create(

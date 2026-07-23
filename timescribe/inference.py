@@ -128,8 +128,12 @@ class CombinedResponse(BaseModel):
 
 def _planner_model(cfg: dict) -> str:
     """The reasoning-tier model for the active provider (Sonnet for
-    Anthropic, gpt-4o for OpenAI)."""
+    Anthropic, gpt-4o for OpenAI, org's configured planner for halo_org)."""
     provider = (cfg.get("llm_provider") or "anthropic").lower()
+    if provider == "halo_org":
+        provider = (cfg.get("org_ai_provider") or "openai").lower()
+        return cfg.get("org_ai_model_planner",
+                       "gpt-4o" if provider == "openai" else "claude-sonnet-4-6")
     if provider == "openai":
         return cfg.get("openai_model_planner", "gpt-4o")
     return cfg.get("anthropic_model_planner", "claude-sonnet-4-6")
