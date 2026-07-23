@@ -36,6 +36,8 @@ Return STRICT JSON:
 Rules:
 - Only draft an entry when the activity plausibly relates to a specific ticket. Client-name match (profile vs ticket client) is strong evidence. Subject-keyword match is strong evidence. Weak guesses go to unmatched instead.
 - Merge adjacent/related digest entries for the same ticket into ONE draft spanning the combined time.
+- DRAFTS MUST NOT OVERLAP IN TIME. Each minute belongs to at most one draft; when activity interleaves between tickets, split at the boundaries rather than emitting a long entry that swallows a shorter concurrent one.
+- The focused/active window outranks background browser tabs when deciding the ticket for a given stretch.
 - Round times to the nearest 5 minutes. Minimum entry: 10 minutes.
 - The note should read like a professional time entry: what was done, for what system/feature, outcome if visible. No "the user" phrasing -- write like a technician writes ("Configured integration runbook for asset sync; tested against dev environment").
 - confidence: 0.9+ = explicit ticket-number or exact-subject evidence; 0.7-0.9 = strong client+topic match; below 0.7 = send to unmatched instead.
@@ -99,6 +101,13 @@ DRAFT rules:
   Client-name (profile vs ticket client) and subject-keyword matches are
   strong evidence. Weak guesses go to unmatched instead.
 - Merge adjacent/related activity for the same ticket into ONE draft.
+- DRAFTS MUST NOT OVERLAP IN TIME. Each minute of the day belongs to at most
+  one draft. When activity for two tickets interleaves, split the time at the
+  boundaries -- never emit a long entry that swallows a shorter concurrent
+  one. The sum of draft durations must not exceed the wall-clock day.
+- The FOCUSED (active) window is what the user was actually doing at a given
+  moment; weight it above background browser tabs when deciding the ticket
+  for that minute.
 - Round to nearest 5 min. Minimum entry 10 min. confidence: 0.9+ explicit
   ticket/subject evidence; 0.7-0.9 strong client+topic; below 0.7 -> unmatched.
 - General/internal activity (email triage, team meetings, this app) ->

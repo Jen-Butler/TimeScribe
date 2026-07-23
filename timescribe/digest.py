@@ -76,11 +76,13 @@ def save_digest(d: date_cls, entries: List[dict]) -> None:
 def build_signal_feed(since: datetime, until: datetime) -> str:
     """Merge browser + AW into one chronological text feed for the LLM."""
     cfg = appconfig.load()
-    ud = cfg.get("edge_user_data_dir") or history.default_user_data_dir()
-    visits = history.read_all_history(
-        ud, since=since, until=until,
-        ignore_prefixes=("chrome-extension://", "edge-extension://", "edge://", "about:"),
+    visits = history.read_enabled_history(
+        since=since, until=until,
+        ignore_prefixes=("chrome-extension://", "edge-extension://",
+                         "chrome://", "edge://", "about:"),
+        enabled_map=cfg.get("browser_profiles", {}),
         exclude_profiles=cfg.get("exclude_profiles", []),
+        edge_override=cfg.get("edge_user_data_dir") or None,
     )
     windows = activitywatch.get_window_events(since, until)
     afk = activitywatch.get_inactivity_periods(since, until)

@@ -37,10 +37,11 @@ def _profile_names(user_data: Path) -> Dict[str, str]:
         return {}
 
 
-def discover_profiles(user_data_dir: str) -> List[Tuple[str, str, Path]]:
-    ud = Path(os.path.expandvars(user_data_dir or default_user_data_dir()))
+def _discover_profiles_dir(ud: Path) -> List[Tuple[str, str, Path]]:
+    """(folder, friendly_name, History path) for each profile under a
+    browser's User Data dir. Non-raising: missing dir -> []."""
     if not ud.exists():
-        raise FileNotFoundError(f"Edge User Data not found at {ud}")
+        return []
     names = _profile_names(ud)
     out = []
     for child in sorted(ud.iterdir()):
@@ -50,6 +51,54 @@ def discover_profiles(user_data_dir: str) -> List[Tuple[str, str, Path]]:
         if hp.exists():
             out.append((child.name, names.get(child.name, child.name), hp))
     return out
+
+
+def discover_profiles(user_data_dir: str) -> List[Tuple[str, str, Path]]:
+    ud = Path(os.path.expandvars(user_data_dir or default_user_data_dir()))
+    if not ud.exists():
+        raise FileNotFoundError(f"Edge User Data not found at {ud}")
+    return _discover_profiles_dir(ud)
+
+
+def discover_all_sources(edge_override: Optional[str] = None):
+    """Every profile across every installed Chromium browser.
+    Yields (browser_key, browser_name, folder, friendly, History path)."""
+    from timescribe import browsers
+    out = []
+    for key, name, ud in browsers.installed_browsers(edge_override):
+        for folder, friendly, hp in _discover_profiles_dir(ud):
+            out.append((key, name, folder, friendly, hp))
+    return out
+
+
+def read_enabled_history(since: datetime, until: Optional[datetime] = None,
+                         ignore_prefixes: Iterable[str] = (),
+                         enabled_map: Optional[Dict[str, bool]] = None,
+                         exclude_profiles: Iterable[str] = (),
+                         edge_override: Optional[str] = None) -> List[dict]:
+    """Read history across all installed browsers, keeping only enabled
+    sources. `enabled_map` maps "browserkey::folder" -> bool; a source not
+    present defaults to enabled unless its name is in exclude_profiles
+    (legacy). Visits are tagged with browser + profile."""
+    enabled_map = enabled_map or {}
+    excl = {s.strip().lower() for s in (exclude_profiles or []) if s.strip()}
+    merged, counts = [], []
+    for key, name, folder, friendly, hp in discover_all_sources(edge_override):
+        sid = f"{key}::{folder}"
+        default = not (folder.lower() in excl or friendly.lower() in excl)
+        if not enabled_map.get(sid, default):
+            continue
+        try:
+            v = _read_one(hp, since, until, ignore_prefixes, friendly)
+        except (OSError, sqlite3.Error):
+            continue
+        for x in v:
+            x["browser"] = name
+        merged.extend(v)
+        counts.append(f"{name}/{friendly}={len(v)}")
+    merged.sort(key=lambda x: x["time"])
+    print(f"[history] {', '.join(counts) or '(none)'}")
+    return merged
 
 
 def _read_one(history_path: Path, since: datetime, until: Optional[datetime],

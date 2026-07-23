@@ -39,6 +39,9 @@ DEFAULTS: Dict[str, Any] = {
     # Combined pass: build ticket-matched drafts during periodic digests,
     # not just at EOD. One LLM call does digest + matching together.
     "combined_digest_drafts": True,
+    # Which browser profiles to read. "browserkey::folder" -> bool. Absent
+    # source defaults to enabled (unless in legacy exclude_profiles).
+    "browser_profiles": {},
 }
 
 

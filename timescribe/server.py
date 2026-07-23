@@ -63,6 +63,7 @@ class ConfigUpdate(BaseModel):
     digest_weekdays: Optional[list] = None      # [0..6], Mon=0
     digest_interval_minutes: Optional[int] = None
     combined_digest_drafts: Optional[bool] = None
+    browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
 
 
 class SecretUpdate(BaseModel):
@@ -140,6 +141,27 @@ def tickets(limit: int = 25):
                  "status": t.status}
                 for t in items[:limit]
             ]}
+
+
+@app.get("/api/browsers")
+def browsers_list():
+    """Installed Chromium browsers and their profiles, with enabled state,
+    for the Settings browser-source picker."""
+    from timescribe import history as _history
+    cfg = appconfig.load()
+    edge_override = cfg.get("edge_user_data_dir") or None
+    enabled = cfg.get("browser_profiles", {})
+    excl = {s.strip().lower() for s in cfg.get("exclude_profiles", []) if s.strip()}
+    grouped = {}
+    for key, name, folder, friendly, hp in _history.discover_all_sources(edge_override):
+        sid = f"{key}::{folder}"
+        default = not (folder.lower() in excl or friendly.lower() in excl)
+        grouped.setdefault(key, {"key": key, "browser": name, "profiles": []})
+        grouped[key]["profiles"].append({
+            "sid": sid, "folder": folder, "name": friendly,
+            "enabled": enabled.get(sid, default),
+        })
+    return {"browsers": list(grouped.values())}
 
 
 @app.get("/api/ticket")
@@ -477,13 +499,14 @@ def timeline(day: str = None):
         return round(dt.hour * 60 + dt.minute + dt.second / 60, 2)
 
     cfg = appconfig.load()
-    ud = cfg.get("edge_user_data_dir") or _history.default_user_data_dir()
     try:
-        visits = _history.read_all_history(
-            ud, since=since, until=until,
+        visits = _history.read_enabled_history(
+            since=since, until=until,
             ignore_prefixes=("chrome-extension://", "edge-extension://",
-                             "edge://", "about:"),
-            exclude_profiles=cfg.get("exclude_profiles", []))
+                             "chrome://", "edge://", "about:"),
+            enabled_map=cfg.get("browser_profiles", {}),
+            exclude_profiles=cfg.get("exclude_profiles", []),
+            edge_override=cfg.get("edge_user_data_dir") or None)
     except Exception as exc:
         print(f"[timeline] history read failed: {exc}")
         visits = []

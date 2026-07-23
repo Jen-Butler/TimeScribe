@@ -120,6 +120,18 @@
     <div id="schedMsg" style="font-size:12px;margin-top:6px"></div>
   </div>
 
+  <div class="card" id="browserCard">
+    <h2>Browser sources
+      <button id="btnBrowsersRefresh" style="margin:0;padding:4px 12px;font-size:12px">Rescan</button>
+    </h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
+      Detected browsers and profiles on this machine. Check the ones whose
+      history should feed the digest.</p>
+    <div id="browserList" style="font-size:13px"></div>
+    <button id="btnSaveBrowsers" style="margin-top:12px">Save sources</button>
+    <div id="browserMsg" style="font-size:12px;margin-top:6px"></div>
+  </div>
+
   <div class="card">
     <h2>Logs
       <button id="btnLogsRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
@@ -740,6 +752,53 @@ $('btnSaveSchedule').onclick = async () => {
   }
 };
 loadSchedule();
+
+// ---- browser sources ----
+async function loadBrowsers() {
+  const box = $('browserList');
+  box.innerHTML = '<span style="color:var(--muted)">Scanning…</span>';
+  try {
+    const r = await api('/api/browsers');
+    if (!r.browsers.length) {
+      box.innerHTML = '<span style="color:var(--muted)">No Chromium browsers found on this machine.</span>';
+      return;
+    }
+    box.innerHTML = '';
+    for (const b of r.browsers) {
+      const grp = document.createElement('div');
+      grp.style.cssText = 'margin-bottom:10px';
+      grp.innerHTML = `<div style="font-weight:600;font-size:13px;margin-bottom:4px">${b.browser}</div>`;
+      for (const p of b.profiles) {
+        const id = 'bp_' + p.sid.replace(/[^a-z0-9]/gi, '_');
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;margin:3px 0 3px 8px;cursor:pointer';
+        row.innerHTML = `<input type="checkbox" id="${id}" data-sid="${p.sid}" ${p.enabled?'checked':''} style="width:auto;margin:0">`
+          + `<span>${p.name}</span><span style="color:var(--muted);font-size:11px">(${p.folder})</span>`;
+        grp.appendChild(row);
+      }
+      box.appendChild(grp);
+    }
+  } catch (e) {
+    box.innerHTML = '<span class="err-text">Scan failed: ' + e.message + '</span>';
+  }
+}
+$('btnBrowsersRefresh').onclick = loadBrowsers;
+$('btnSaveBrowsers').onclick = async () => {
+  const map = {};
+  $('browserList').querySelectorAll('[data-sid]').forEach(cb => {
+    map[cb.getAttribute('data-sid')] = cb.checked;
+  });
+  try {
+    await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({browser_profiles: map})});
+    $('browserMsg').textContent = 'Sources saved. Next digest will use them.';
+    $('browserMsg').className = 'ok-text';
+  } catch (e) {
+    $('browserMsg').textContent = 'Save failed: ' + e.message;
+    $('browserMsg').className = 'err-text';
+  }
+};
+loadBrowsers();
 
 // ---- tab navigation ----
 // ---- activity timeline ----
