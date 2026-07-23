@@ -211,9 +211,15 @@ folder exclusion while developing. Code-sign before distributing broadly.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+TimeScribe is MIT-licensed — see [LICENSE](LICENSE).
+
+Bundled and dependent third-party software (including ActivityWatch under
+MPL-2.0) is documented with full license texts and source pointers in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). This file also ships in the
+installed application folder.
 
 ## Acknowledgements
 
 - [ActivityWatch](https://activitywatch.net) (MPL-2.0) — bundled unmodified
-  for window/AFK tracking.
+  (v0.13.2) for window/AFK tracking. Source for the exact bundled build:
+  https://github.com/ActivityWatch/activitywatch/releases/tag/v0.13.2

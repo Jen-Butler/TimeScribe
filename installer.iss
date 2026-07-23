@@ -17,6 +17,9 @@ CloseApplications=yes
 Source: "dist\TimeScribe\*"; DestDir: "{app}"; Flags: recursesubdirs
 ; Bundled ActivityWatch portable (populate with: python fetch_aw.py)
 Source: "aw_dist\*"; DestDir: "{app}\aw"; Flags: recursesubdirs skipifsourcedoesntexist
+; License + third-party notices (MPL-2.0 for bundled ActivityWatch, etc.)
+Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\TimeScribe"; Filename: "{app}\TimeScribe.exe"
