@@ -304,6 +304,39 @@ class HaloPSAAdapter(PSAAdapter):
                   f"chargeamount={rec.get('actionchargeamount')}")
         return str((rec or {}).get("id") or "")
 
+    def delete_action(self, action_id) -> None:
+        """Delete an action in Halo (e.g. one posted to the wrong ticket).
+        Used to complete a 'move': repost to the right ticket, then remove
+        the original."""
+        if not action_id:
+            raise RuntimeError("no action id to delete")
+        token = self._ensure_access_token()
+        url = urljoin(self.api_base + "/", f"Actions/{action_id}")
+        print(f"[halo] DELETE Actions/{action_id}")
+        resp = httpx.delete(url, headers={"Authorization": f"Bearer {token}"},
+                            timeout=30)
+        if resp.status_code >= 400:
+            detail = (resp.text or "")[:400]
+            raise RuntimeError(f"Halo delete action {action_id} returned "
+                               f"{resp.status_code}: {detail or 'no detail'}")
+
+    def action_exists(self, action_id) -> Optional[bool]:
+        """Does a previously-posted action still exist in Halo?
+        True = still there, False = gone/deleted, None = couldn't tell
+        (don't block a repost on an inconclusive check)."""
+        if not action_id:
+            return None
+        try:
+            r = self._api_get(f"Actions/{action_id}")
+        except Exception as exc:
+            if "404" in str(exc) or "not found" in str(exc).lower():
+                return False
+            return None
+        if isinstance(r, dict) and r.get("id"):
+            return not bool(r.get("deleted") or r.get("isdeleted")
+                            or r.get("actisdeleted"))
+        return False
+
     def get_ticket(self, ticket_id) -> dict:
         """Fetch one ticket's detail for the timesheet click-through panel."""
         t = self._api_get(f"Tickets/{ticket_id}")

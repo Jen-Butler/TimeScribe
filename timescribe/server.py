@@ -480,6 +480,14 @@ def drafts_repost(body: DraftUpdate, day: str = None):
                     break
         except Exception:
             pass
+    # Was the previous Halo action still there, or had it been deleted in
+    # Halo before this repost? Reporting this avoids surprise duplicates.
+    prev_id = item.get("posted_id")
+    prev_exists = None
+    try:
+        prev_exists = a.action_exists(prev_id)
+    except Exception:
+        prev_exists = None
     try:
         posted_id = a.create_time_entry(_entry_from_item(item, target))
     except Exception as exc:
@@ -488,7 +496,26 @@ def drafts_repost(body: DraftUpdate, day: str = None):
     item["posted_id"] = posted_id
     item["status"] = "posted"
     _drafts.save(target, items)
-    return {"ok": True, "posted_id": posted_id}
+    return {"ok": True, "posted_id": posted_id,
+            "previous_id": prev_id, "previous_exists": prev_exists}
+
+
+class ActionRef(BaseModel):
+    action_id: str
+
+
+@app.post("/api/halo/delete_action")
+def halo_delete_action(body: ActionRef):
+    """Delete a Halo action by id -- used to remove a copy posted to the
+    wrong ticket after reposting it to the right one."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    try:
+        a.delete_action(body.action_id)
+    except Exception as exc:
+        raise HTTPException(502, str(exc))
+    return {"ok": True}
 
 
 @app.get("/api/timesheet")

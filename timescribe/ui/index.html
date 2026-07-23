@@ -443,7 +443,30 @@ async function repostDraft(i) {
         no_charge: $('dnc'+i).checked,
         private_note: $('dp'+i).value,
       })});
-    setMsg('Re-posted (new Halo id ' + r.posted_id + ').', true);
+    let msg = 'Re-posted (new Halo id ' + r.posted_id + ').';
+    if (r.previous_exists === false) {
+      msg += ' The previous copy was already gone from Halo.';
+      setMsg(msg, true);
+    } else if (r.previous_exists === true && r.previous_id) {
+      // The old action is still in Halo (e.g. it was on the wrong ticket).
+      // Offer to remove it so this becomes a clean move, not a duplicate.
+      if (confirm(msg + '\n\nThe previous copy (Halo action #' + r.previous_id +
+          ') is still in Halo. Delete it now to avoid a duplicate?')) {
+        try {
+          await api('/api/halo/delete_action', {method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({action_id: String(r.previous_id)})});
+          setMsg('Re-posted and removed the previous Halo action #' + r.previous_id + '.', true);
+        } catch (e2) {
+          setMsg(msg + ' Could not delete the old copy: ' + e2.message +
+                 ' — remove Halo action #' + r.previous_id + ' manually.', false);
+        }
+      } else {
+        setMsg(msg + ' Old copy left in Halo (#' + r.previous_id + ').', true);
+      }
+    } else {
+      setMsg(msg, true);
+    }
     loadDrafts(); loadSummary(); loadTimesheet();
   } catch (e) { setMsg('Repost failed: ' + e.message, false); }
 }
