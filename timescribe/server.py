@@ -669,16 +669,16 @@ def timesheet(day: str = None):
     except Exception as exc:
         raise HTTPException(502, str(exc))
     ts["rows"].sort(key=lambda r: r.get("start") or "99")
-    # Split logged time into billable vs no-charge from each row's charge type.
-    billable = nonbill = 0.0
-    for r in ts["rows"]:
-        h = r.get("hours") or 0
-        if "no charge" in (r.get("charge_type") or "").lower():
-            nonbill += h
-        else:
-            billable += h
+    # Split logged time into billable vs no-charge from each row's charge
+    # type. Derive no-charge as (logged - billable) so the parts always sum
+    # to the displayed logged total -- avoids independent-rounding drift.
+    billable = sum((r.get("hours") or 0) for r in ts["rows"]
+                   if "no charge" not in (r.get("charge_type") or "").lower())
+    logged = ts.get("actual_hours")
+    if logged is None:
+        logged = sum((r.get("hours") or 0) for r in ts["rows"])
     ts["billable_hours"] = round(billable, 2)
-    ts["nonbillable_hours"] = round(nonbill, 2)
+    ts["nonbillable_hours"] = round(max(0.0, round(logged, 2) - ts["billable_hours"]), 2)
     base = (appconfig.load().get("halo_base_url") or "").rstrip("/")
     return {"day": target.isoformat(), "halo_base_url": base, **ts}
 
