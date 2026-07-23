@@ -357,6 +357,58 @@ def drafts_delete(body: DraftAction, day: str = None):
     return {"ok": True, "removed": removed.get("note", "")[:60], "count": len(items)}
 
 
+class DraftMerge(BaseModel):
+    anchor_index: int      # entry that absorbs (keeps its ticket id)
+    other_index: int       # entry merged in and removed
+
+
+@app.post("/api/drafts/merge")
+def drafts_merge(body: DraftMerge, day: str = None):
+    """Merge `other` into `anchor`: append its note, union the time span,
+    keep the anchor's ticket/client. The anchor keeps its identity; the
+    other entry is removed. Neither may be posted."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    ai, oi = body.anchor_index, body.other_index
+    if not (0 <= ai < len(items)) or not (0 <= oi < len(items)) or ai == oi:
+        raise HTTPException(400, "bad merge indices")
+    anchor, other = items[ai], items[oi]
+    if anchor.get("status") == "posted" or other.get("status") == "posted":
+        raise HTTPException(400, "can't merge posted entries")
+
+    def _m(hm):
+        try:
+            h, m = map(int, (hm or "").split(":")); return h * 60 + m
+        except (ValueError, AttributeError):
+            return None
+    def _fmt(x):
+        return f"{x // 60:02d}:{x % 60:02d}"
+
+    starts = [v for v in (_m(anchor.get("start_time")), _m(other.get("start_time"))) if v is not None]
+    ends = [v for v in (_m(anchor.get("end_time")), _m(other.get("end_time"))) if v is not None]
+    if starts:
+        anchor["start_time"] = _fmt(min(starts))
+    if ends:
+        anchor["end_time"] = _fmt(max(ends))
+    # Append notes (skip duplicates / empties).
+    def _join(a, b):
+        a, b = (a or "").strip(), (b or "").strip()
+        if not b or b in a:
+            return a
+        return (a + "\n" + b).strip()
+    anchor["note"] = _join(anchor.get("note"), other.get("note"))
+    anchor["private_note"] = _join(anchor.get("private_note"), other.get("private_note"))
+    # Absorbing means this is now hand-curated: full confidence, keep draft.
+    anchor["confidence"] = max(anchor.get("confidence", 0) or 0,
+                               other.get("confidence", 0) or 0)
+    anchor["status"] = "draft"
+    items.pop(oi)
+    _drafts.save(target, items)
+    # anchor index shifts down by 1 if the removed item was before it
+    new_anchor = ai - 1 if oi < ai else ai
+    return {"ok": True, "anchor_index": new_anchor, "count": len(items)}
+
+
 @app.post("/api/drafts/ignore")
 def drafts_ignore(body: DraftAction, day: str = None):
     """Remove an entry AND remember it, so future digests don't resurface

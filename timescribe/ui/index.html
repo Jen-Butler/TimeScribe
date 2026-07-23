@@ -350,7 +350,8 @@ $('btnDigest').onclick = async () => {
 
 loadDigest();
 
-function draftRow(d, i) {
+function draftRow(d, i, nbr) {
+  nbr = nbr || {};
   const div = document.createElement('div');
   div.style.cssText = 'border-bottom:1px solid #334155;padding:10px 0';
   const conf = Math.round((d.confidence || 0) * 100);
@@ -408,6 +409,10 @@ function draftRow(d, i) {
     if (d.status !== 'rejected')
       btns.appendChild(mk('Reject', 'var(--bad)', () => draftAction(i, 'reject')));
     btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
+    if (nbr.up != null)
+      btns.appendChild(mk('⬆ Merge', '#0e7490', () => mergeDraft(i, nbr.up)));
+    if (nbr.down != null)
+      btns.appendChild(mk('⬇ Merge', '#0e7490', () => mergeDraft(i, nbr.down)));
     btns.appendChild(mk('Delete', '#64748b', () => deleteDraft(i)));
     btns.appendChild(mk('Ignore', '#7c2d12', () => ignoreDraft(i)));
   } else {
@@ -428,6 +433,16 @@ async function deleteDraft(i) {
     setMsg('Entry removed.', true);
     loadDrafts(); loadSummary();
   } catch (e) { setMsg('Delete failed: ' + e.message, false); }
+}
+
+async function mergeDraft(anchorIdx, otherIdx) {
+  try {
+    await api('/api/drafts/merge?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({anchor_index: anchorIdx, other_index: otherIdx})});
+    setMsg('Merged.', true);
+    loadDrafts(); loadSummary();
+  } catch (e) { setMsg('Merge failed: ' + e.message, false); }
 }
 
 async function ignoreDraft(i) {
@@ -614,7 +629,13 @@ async function loadDrafts() {
     el.innerHTML = active.length ? '' :
       '<span style="color:var(--muted)">No drafts. Run the digest, then click generate.</span>';
     sortDraftPairs(active);
-    active.forEach(([d, i]) => el.appendChild(draftRow(d, i)));
+    active.forEach(([d, i], pos) => {
+      const nbr = {
+        up:   pos > 0 ? active[pos - 1][1] : null,
+        down: pos < active.length - 1 ? active[pos + 1][1] : null,
+      };
+      el.appendChild(draftRow(d, i, nbr));
+    });
 
     const pl = $('postedTodayList');
     pl.innerHTML = posted.length ? '' :
