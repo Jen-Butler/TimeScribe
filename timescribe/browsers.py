@@ -4,12 +4,16 @@ Edge, Chrome, Brave, Vivaldi, and Chromium all store history in the same
 SQLite schema and profiles in the same Local State format, so one reader
 handles them all -- we just need to know where each keeps its User Data.
 
-Firefox uses a different format (places.sqlite) and is out of scope here.
+Firefox uses a different format (places.sqlite, profiles.ini, a different
+timestamp epoch) so it has its own discovery (firefox_profiles) and reader.
 """
 from __future__ import annotations
+import configparser
 import os
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+FIREFOX_ROOT = r"%APPDATA%\Mozilla\Firefox"
 
 # key -> (display name, User Data dir path template with env vars)
 BROWSERS = {
@@ -37,4 +41,32 @@ def installed_browsers(edge_override: Optional[str] = None) -> List[Tuple[str, s
         ud = user_data_dir(key, edge_override if key == "edge" else None)
         if ud.exists():
             out.append((key, name, ud))
+    return out
+
+
+def firefox_profiles() -> List[Tuple[str, str, Path]]:
+    """(folder, friendly_name, places.sqlite path) for each Firefox profile,
+    parsed from profiles.ini. Empty if Firefox isn't installed."""
+    root = Path(os.path.expandvars(FIREFOX_ROOT))
+    ini = root / "profiles.ini"
+    if not ini.exists():
+        return []
+    cp = configparser.ConfigParser()
+    try:
+        cp.read(ini, encoding="utf-8")
+    except (OSError, configparser.Error):
+        return []
+    out = []
+    for sect in cp.sections():
+        if not sect.lower().startswith("profile"):
+            continue
+        path = cp.get(sect, "Path", fallback=None)
+        if not path:
+            continue
+        is_rel = cp.get(sect, "IsRelative", fallback="1") == "1"
+        pdir = (root / path) if is_rel else Path(path)
+        places = pdir / "places.sqlite"
+        if places.exists():
+            name = cp.get(sect, "Name", fallback=pdir.name)
+            out.append((pdir.name, name, places))
     return out

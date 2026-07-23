@@ -503,7 +503,7 @@ def timeline(day: str = None):
         visits = _history.read_enabled_history(
             since=since, until=until,
             ignore_prefixes=("chrome-extension://", "edge-extension://",
-                             "chrome://", "edge://", "about:"),
+                             "moz-extension://", "chrome://", "edge://", "about:"),
             enabled_map=cfg.get("browser_profiles", {}),
             exclude_profiles=cfg.get("exclude_profiles", []),
             edge_override=cfg.get("edge_user_data_dir") or None)

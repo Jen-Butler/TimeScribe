@@ -61,14 +61,64 @@ def discover_profiles(user_data_dir: str) -> List[Tuple[str, str, Path]]:
 
 
 def discover_all_sources(edge_override: Optional[str] = None):
-    """Every profile across every installed Chromium browser.
-    Yields (browser_key, browser_name, folder, friendly, History path)."""
+    """Every profile across every installed browser (Chromium family +
+    Firefox). Yields (browser_key, browser_name, folder, friendly, path)."""
     from timescribe import browsers
     out = []
     for key, name, ud in browsers.installed_browsers(edge_override):
         for folder, friendly, hp in _discover_profiles_dir(ud):
             out.append((key, name, folder, friendly, hp))
+    for folder, friendly, places in browsers.firefox_profiles():
+        out.append(("firefox", "Firefox", folder, friendly, places))
     return out
+
+
+def _read_one_firefox(places_path: Path, since: datetime, until: Optional[datetime],
+                      ignore_prefixes, profile: str, dedupe_seconds: int = 5) -> List[dict]:
+    """Read a Firefox profile's places.sqlite. Firefox stores visit_date as
+    microseconds since the Unix epoch (not the WebKit epoch), and holds a
+    WAL, so we copy the db + its -wal/-shm sidecars before reading."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        base = Path(tmpdir) / "places.sqlite"
+        shutil.copy2(places_path, base)
+        for suffix in ("-wal", "-shm"):
+            side = places_path.with_name(places_path.name + suffix)
+            if side.exists():
+                try:
+                    shutil.copy2(side, Path(tmpdir) / (base.name + suffix))
+                except OSError:
+                    pass
+        conn = sqlite3.connect(str(base))
+        conn.row_factory = sqlite3.Row
+        q = ("SELECT h.visit_date, p.url, p.title "
+             "FROM moz_historyvisits h JOIN moz_places p ON h.place_id = p.id "
+             "WHERE h.visit_date > ?")
+        args = [int(since.timestamp() * 1_000_000)]
+        if until:
+            q += " AND h.visit_date <= ?"
+            args.append(int(until.timestamp() * 1_000_000))
+        q += " ORDER BY h.visit_date ASC"
+        visits = []
+        last_seen: Dict[str, datetime] = {}
+        for row in conn.execute(q, args):
+            url = row["url"] or ""
+            if not url or any(url.startswith(p) for p in (ignore_prefixes or [])):
+                continue
+            t = datetime.fromtimestamp(row["visit_date"] / 1_000_000)
+            prev = last_seen.get(url)
+            if prev and (t - prev).total_seconds() < dedupe_seconds:
+                continue
+            last_seen[url] = t
+            visits.append({
+                "time": t, "url": url, "title": row["title"] or "",
+                "domain": urlparse(url).netloc or "(unknown)",
+                "profile": profile,
+            })
+        conn.close()
+        return visits
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def read_enabled_history(since: datetime, until: Optional[datetime] = None,
@@ -88,8 +138,9 @@ def read_enabled_history(since: datetime, until: Optional[datetime] = None,
         default = not (folder.lower() in excl or friendly.lower() in excl)
         if not enabled_map.get(sid, default):
             continue
+        reader = _read_one_firefox if key == "firefox" else _read_one
         try:
-            v = _read_one(hp, since, until, ignore_prefixes, friendly)
+            v = reader(hp, since, until, ignore_prefixes, friendly)
         except (OSError, sqlite3.Error):
             continue
         for x in v:
