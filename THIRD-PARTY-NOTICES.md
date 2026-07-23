@@ -22,6 +22,25 @@ The complete MPL-2.0 license text is reproduced at the bottom of this file.
 Per MPL-2.0 §3.2, the Source Code Form of ActivityWatch is available at the
 tagged release above; TimeScribe redistributes the Executable Form unmodified.
 
+### Citation
+
+The ActivityWatch authors request the following citation:
+
+> Bjäreholt, E., & Bjäreholt, J. (2024). ActivityWatch (Version 0.13.1)
+> [Computer software]. https://doi.org/10.5281/zenodo.4957165
+
+```bibtex
+@software{Bjareholt_ActivityWatch_2024,
+  author  = {Bjäreholt, Erik and Bjäreholt, Johan},
+  doi     = {10.5281/zenodo.4957165},
+  month   = jun,
+  title   = {{ActivityWatch}},
+  url     = {https://github.com/ActivityWatch/activitywatch},
+  version = {0.13.1},
+  year    = {2024}
+}
+```
+
 ### Components inside the ActivityWatch build
 
 The ActivityWatch portable build we redistribute includes the following
