@@ -28,12 +28,29 @@ def _dashboard_url() -> str:
     return f"http://127.0.0.1:{port}"
 
 
+_dash_proc = None
+
+
 def open_dashboard(icon=None, item=None):
+    """Open the dashboard in a dedicated Edge app-window. Reuses the
+    existing window if one is already open (no more stacking a new window
+    on every click). A dedicated user-data-dir keeps it a standalone app
+    window with our own icon rather than an Edge browser tab."""
+    global _dash_proc
+    if _dash_proc is not None and _dash_proc.poll() is None:
+        return  # our dashboard window is already open
+    import os
     url = _dashboard_url()
     edge = (shutil.which("msedge")
             or r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+    profile = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+                           "timescribe", "dashboard-window")
     try:
-        subprocess.Popen([edge, f"--app={url}", "--window-size=900,760"])
+        _dash_proc = subprocess.Popen([
+            edge, f"--app={url}", f"--user-data-dir={profile}",
+            "--no-first-run", "--no-default-browser-check",
+            "--window-size=980,800",
+        ])
     except (OSError, FileNotFoundError):
         webbrowser.open(url)
 
@@ -128,8 +145,14 @@ def main():
     # click, say) would fail to bind the port and linger as a zombie tray
     # icon. Instead, hand off to the running instance and exit.
     if _already_running():
-        print("[app] another instance is already running; opening its dashboard and exiting")
-        open_dashboard()
+        print("[app] another instance is already running; asking it to show the dashboard")
+        import httpx
+        port = appconfig.load().get("ui_port", 8770)
+        try:
+            httpx.post(f"http://127.0.0.1:{port}/api/open-dashboard",
+                       timeout=3, trust_env=False)
+        except Exception:
+            open_dashboard()   # fall back to opening one ourselves
         return
     # 1. Backend in a daemon thread
     t = threading.Thread(target=_run_server, daemon=True)

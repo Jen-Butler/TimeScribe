@@ -819,6 +819,18 @@ def summary(day: str = None):
 from timescribe import scheduler as _scheduler
 
 
+@app.post("/api/open-dashboard")
+def open_dashboard_ep():
+    """Let a second launch ask the running instance to show its dashboard
+    window (reusing the existing one) instead of spawning another."""
+    try:
+        from timescribe import app as _app
+        _app.open_dashboard()
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+    return {"ok": True}
+
+
 @app.get("/api/scheduler/status")
 def scheduler_status():
     return _scheduler.status()
