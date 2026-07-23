@@ -355,7 +355,10 @@ function draftRow(d, i) {
   const conf = Math.round((d.confidence || 0) * 100);
   const statusColor = {draft:'var(--muted)', approved:'var(--good)',
                        rejected:'var(--bad)', posted:'var(--accent)'}[d.status] || 'var(--muted)';
-  const editable = d.status !== 'posted';
+  // Posted entries stay editable so they can be tweaked before a repost;
+  // the repost creates a fresh Halo action from the edited values.
+  const editable = true;
+  const isPosted = d.status === 'posted';
   const ticketVal = d.ticket_id || '';
   const target = d.ticket_id
       ? `#${d.ticket_id} [${d.client}] ${d.subject}`
@@ -397,7 +400,7 @@ function draftRow(d, i) {
     b.onclick = fn;
     return b;
   };
-  if (editable) {
+  if (!isPosted) {
     btns.appendChild(mk('Save edits', 'var(--accent)', () => saveDraft(i)));
     if (d.status !== 'approved')
       btns.appendChild(mk('Approve', 'var(--good)', () => draftAction(i, 'approve')));
@@ -406,8 +409,9 @@ function draftRow(d, i) {
     btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
     btns.appendChild(mk('Delete', '#64748b', () => deleteDraft(i)));
   } else {
-    // Posted entries live in the Posted sub-tab: repost only, no delete.
-    btns.appendChild(mk('Repost', 'var(--accent)', () => repostDraft(i)));
+    // Posted entries: editable, then reposted as a fresh Halo action with
+    // whatever's currently in the fields.
+    btns.appendChild(mk('Repost with edits', 'var(--accent)', () => repostDraft(i)));
   }
   div.appendChild(btns);
   return div;
@@ -425,11 +429,20 @@ async function deleteDraft(i) {
 }
 
 async function repostDraft(i) {
-  if (!confirm('Post this entry to Halo again? The earlier copy is not removed automatically.')) return;
+  if (!confirm('Post this entry to Halo again with the current values? The earlier copy is not removed automatically.')) return;
+  const tid = $('dt'+i).value.trim();
   try {
     const r = await api('/api/drafts/repost?day=' + selDay(), {method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({index: i, action: 'repost'})});
+      body: JSON.stringify({
+        index: i,
+        ticket_id: tid ? parseInt(tid, 10) : null,
+        note: $('dn'+i).value,
+        start_time: $('ds'+i).value,
+        end_time: $('de'+i).value,
+        no_charge: $('dnc'+i).checked,
+        private_note: $('dp'+i).value,
+      })});
     setMsg('Re-posted (new Halo id ' + r.posted_id + ').', true);
     loadDrafts(); loadSummary(); loadTimesheet();
   } catch (e) { setMsg('Repost failed: ' + e.message, false); }

@@ -444,10 +444,10 @@ def _entry_from_item(item: dict, target) -> "_TimeEntry":
 
 
 @app.post("/api/drafts/repost")
-def drafts_repost(body: DraftAction, day: str = None):
-    """Re-post a single already-posted entry to the PSA (e.g. after the
-    earlier post landed in the wrong place). Creates a NEW entry in the
-    PSA and records its id; it does not delete the previous one."""
+def drafts_repost(body: DraftUpdate, day: str = None):
+    """Re-post an already-posted entry to the PSA, applying any edits sent
+    with the request first. Creates a NEW entry in the PSA and records its
+    id; it does not delete the previous one."""
     a = get_adapter()
     if a is None or not a.is_authenticated():
         raise HTTPException(401, "Halo not connected")
@@ -458,12 +458,36 @@ def drafts_repost(body: DraftAction, day: str = None):
     item = items[body.index]
     if item.get("status") != "posted":
         raise HTTPException(400, "only posted entries can be re-posted")
+    # Apply edits from the request (posted entries are otherwise locked).
+    item["ticket_id"] = body.ticket_id
+    if body.note is not None:
+        item["note"] = body.note
+    if body.no_charge is not None:
+        item["no_charge"] = body.no_charge
+    if body.private_note is not None:
+        item["private_note"] = body.private_note
+    if body.start_time:
+        item["start_time"] = body.start_time
+    if body.end_time:
+        item["end_time"] = body.end_time
+    # Refresh client/subject display for the (possibly new) ticket.
+    item["subject"] = "(quick time)" if not body.ticket_id else item.get("subject", "?")
+    if body.ticket_id:
+        try:
+            for t in a.list_open_tickets():
+                if t.id == body.ticket_id:
+                    item["client"], item["subject"] = t.client, t.subject
+                    break
+        except Exception:
+            pass
     try:
         posted_id = a.create_time_entry(_entry_from_item(item, target))
     except Exception as exc:
         # Pass Halo's actual complaint to the UI instead of a bare 500.
         raise HTTPException(502, str(exc))
-    _drafts.set_status(target, body.index, "posted", posted_id=posted_id)
+    item["posted_id"] = posted_id
+    item["status"] = "posted"
+    _drafts.save(target, items)
     return {"ok": True, "posted_id": posted_id}
 
 
