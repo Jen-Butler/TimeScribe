@@ -5,53 +5,178 @@
 <title>TimeScribe</title>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#f2f2f3">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;700&family=Barlow+Condensed:wght@600&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8;
-          --accent:#38bdf8; --good:#4ade80; --bad:#f87171; }
+  /* Industry — blueprint design system (from TimeScribe Dashboard.dc.html).
+     Tokens are mapped onto the app's original variable names so all
+     existing markup and JS keep working. Wireframe objects: square,
+     transparent, hairline-bordered, with corner registration marks. */
+  :root {
+    --bg:#f2f2f3; --surface:#e9e9ea; --text:#1d1f20;
+    --accent:#5980a6; --accent-strong:#416180;
+    --muted:color-mix(in srgb, #1d1f20 55%, transparent);
+    --border:color-mix(in srgb, #1d1f20 16%, transparent);
+    --card:transparent; --input-bg:var(--surface); --btn-text:#f2f2f3;
+    --good:#4c7a58; --bad:#a65959;
+    --tag-ok-bg:#eef6ff; --tag-ok-text:#2c455d;
+    --tag-err-bg:#f6ecec; --tag-err-text:#6e3535;
+    --font-heading:"Barlow Condensed", system-ui, sans-serif;
+    --font-body:"Barlow", system-ui, sans-serif;
+    --shadow:0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent);
+    --shadow-md:0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent);
+  }
+  body.dark {
+    --bg:#191b1d; --surface:#232629; --text:#e6e7e8;
+    --accent:#86a9cc; --accent-strong:#b5d9fd;
+    --muted:color-mix(in srgb, #e6e7e8 55%, transparent);
+    --border:color-mix(in srgb, #e6e7e8 18%, transparent);
+    --input-bg:var(--surface); --btn-text:#191b1d;
+    --good:#86b894; --bad:#c98b8b;
+    --tag-ok-bg:#223140; --tag-ok-text:#b5d9fd;
+    --tag-err-bg:#3d2727; --tag-err-text:#e3b6b6;
+    --shadow:0 1px 2px rgba(0,0,0,.5);
+    --shadow-md:0 3px 10px rgba(0,0,0,.55);
+  }
   * { box-sizing: border-box; margin: 0; }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg);
-         color: var(--text); padding: 24px; max-width: 860px; margin: 0 auto; }
-  h1 { font-size: 20px; margin-bottom: 16px; }
-  h2 { font-size: 15px; color: var(--muted); margin: 20px 0 8px; }
-  .card { background: var(--card); border-radius: 10px; padding: 18px; margin-bottom: 14px; }
+  body { font-family: var(--font-body); background: var(--bg);
+         color: var(--text); padding: 24px; max-width: 960px; margin: 0 auto;
+         font-size: 15px; line-height: 1.55;
+         transition: background .2s, color .2s; }
+  h1 { font-family: var(--font-heading); font-weight: 600; font-size: 26px;
+       letter-spacing: -.015em; line-height: 1.12; }
+  /* card headers act as kickers: small caps, accent, tracked out */
+  h2 { font-size: 12px; color: var(--accent); margin: 0 0 10px;
+       font-family: var(--font-heading); font-weight: 600;
+       letter-spacing: .1em; text-transform: uppercase;
+       display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* — blueprint cards: transparent, hairline border, corner marks — */
+  .card { background: var(--card); border-radius: 0; padding: 18px; margin-bottom: 20px;
+          border: 1px solid var(--border); position: relative; }
+  .corner { position: absolute; width: 11px; height: 11px;
+            color: color-mix(in srgb, var(--text) 55%, transparent); pointer-events: none; }
+  .corner::before, .corner::after { content: ""; position: absolute; background: currentColor; }
+  .corner::before { left: 5px; top: 0; width: 1px; height: 100%; }
+  .corner::after  { top: 5px; left: 0; width: 100%; height: 1px; }
+  .corner.tl { top: -6px; left: -6px; }   .corner.tr { top: -6px; right: -6px; }
+  .corner.bl { bottom: -6px; left: -6px; } .corner.br { bottom: -6px; right: -6px; }
+
   label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
-  input { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #334155;
-          background: #0f172a; color: var(--text); font-size: 14px; }
-  button { margin-top: 12px; padding: 8px 18px; border: 0; border-radius: 6px;
-           background: var(--accent); color: #0f172a; font-weight: 600;
-           font-size: 14px; cursor: pointer; }
-  button:disabled { opacity: .5; cursor: default; }
-  .status-row { display: flex; gap: 16px; flex-wrap: wrap; }
-  .pill { padding: 6px 14px; border-radius: 999px; font-size: 13px; background: #334155; }
-  .pill.ok  { background: rgba(74,222,128,.15); color: var(--good); }
-  .pill.err { background: rgba(248,113,113,.15); color: var(--bad); }
+  input, select, textarea { width: 100%; padding: 6px 10px; border-radius: 0;
+          border: 1px solid var(--border); font-family: inherit;
+          background: var(--input-bg); color: var(--text); font-size: 14px;
+          caret-color: var(--accent); }
+  input:hover, select:hover, textarea:hover { border-color: color-mix(in srgb, var(--text) 45%, transparent); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); outline-offset: 0; }
+  button { margin-top: 12px; padding: 7px 16px; border: 1px solid var(--accent);
+           border-radius: 0; background: var(--accent); color: var(--btn-text);
+           font-family: var(--font-heading); font-weight: 600; letter-spacing: .02em;
+           font-size: 14px; line-height: 1.2; cursor: pointer;
+           transition: filter .15s, background .15s; }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button:active:not(:disabled) { filter: brightness(.95); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .topbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .topbar .spacer { flex: 1; }
+
+  /* — status tags — */
+  .status-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { padding: 3px 10px; border-radius: 0; font-size: 11px; letter-spacing: .02em;
+          border: 1px solid var(--border); color: var(--muted); background: transparent; }
+  .pill.ok  { background: var(--tag-ok-bg); color: var(--tag-ok-text); border-color: transparent; }
+  .pill.err { background: var(--tag-err-bg); color: var(--tag-err-text); border-color: transparent; }
+
+  .iconbtn { margin: 0; padding: 0; width: 34px; height: 34px; font-size: 14px; line-height: 1;
+             background: transparent; color: var(--text); border: 1px solid var(--border);
+             border-radius: 0; }
+  .iconbtn:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 7%, transparent); filter: none; }
+
+  /* — profile dropdown: blueprint card — */
+  .menu-wrap { position: relative; }
+  .menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; min-width: 240px;
+          background: var(--bg); border: 1px solid var(--border); border-radius: 0;
+          box-shadow: var(--shadow-md); padding: 8px; display: none; }
+  .menu.open { display: block; }
+  .menu button { display: block; width: 100%; text-align: left; margin: 0; padding: 8px 10px;
+                 background: transparent; color: var(--accent); border-color: transparent;
+                 font-size: 13px; border-radius: 0; }
+  .menu button:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); filter: none; }
+
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #334155; }
-  th { color: var(--muted); font-weight: 500; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px;
+       letter-spacing: .08em; text-transform: uppercase; }
+  tbody tr:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
   #msg { font-size: 13px; margin-top: 8px; min-height: 18px; }
   .ok-text { color: var(--good); } .err-text { color: var(--bad); }
 
-  /* Tab navigation */
-  nav { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #334155; }
+  /* — tab navigation: quiet links, accent on current — */
+  nav { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
   nav button {
-    margin: 0; padding: 8px 18px; background: transparent; color: var(--muted);
-    border-radius: 8px 8px 0 0; font-weight: 500; border-bottom: 2px solid transparent;
+    margin: 0; padding: 8px 16px; background: transparent; color: var(--text);
+    border: 0; border-radius: 0; font-size: 14px; letter-spacing: .02em;
+    border-bottom: 2px solid transparent;
   }
-  nav button.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(56,189,248,.06); }
-  nav button:hover:not(.active) { color: var(--text); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav button:hover:not(.active) { color: var(--accent); background: transparent; filter: none; }
   .pane { display: none; }
   .pane.active { display: block; }
+
+  /* wireframe discipline: square corners win over legacy inline radii */
+  input, select, textarea, button, .pill { border-radius: 0 !important; }
+  /* buttons carrying their own inline background keep a matching edge */
+  button[style*="background"] { border-color: transparent; }
+
+  /* — draft entry rows: distinct panels so each entry (and its buttons)
+       reads as one unit against the transparent card — */
+  .draft-row {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    background: color-mix(in srgb, var(--text) 3%, transparent);
+    padding: 12px 14px !important;
+    margin-bottom: 12px;
+  }
+  .draft-row:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+  .draft-row.is-approved { border-left-color: var(--good); }
+  .draft-row.is-rejected { border-left-color: var(--bad); opacity: .72; }
+  .draft-row.is-posted   { border-left-color: var(--accent); }
+  /* button footer: divided off from the entry's own fields */
+  .draft-actions {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .draft-actions button { margin: 0 !important; }
 </style>
 </head>
 <body>
-  <h1>TimeScribe</h1>
+  <div class="topbar">
+    <h1>TimeScribe</h1>
+    <span class="spacer"></span>
+    <button class="iconbtn" id="btnTheme" title="Toggle light/dark mode">🌙</button>
+    <div class="menu-wrap">
+      <button class="iconbtn" id="btnProfile" title="Account">👤</button>
+      <div class="menu" id="profileMenu">
+        <div id="menuWho" style="font-size:12px;color:var(--muted);padding:6px 10px"></div>
+        <button id="menuSwitchUser">Sign out &amp; switch user…</button>
+        <button id="menuSwitchHalo">Connect a different Halo…</button>
+      </div>
+    </div>
+  </div>
 
-  <div class="card">
+  <div class="card" style="padding:12px 18px">
     <div class="status-row" id="statusRow">
       <span class="pill" id="pillHalo">Halo: checking…</span>
       <span class="pill" id="pillKey">Anthropic key: checking…</span>
-      <span class="pill" id="pillAgent"></span>
+      <span class="pill" id="pillAW">ActivityWatch: checking…</span>
       <span class="pill" id="pillSched"></span>
     </div>
   </div>
@@ -71,7 +196,7 @@
     <label>Halo OAuth Client ID</label>
     <input id="haloClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
     <label>AI provider</label>
-    <select id="llmProvider" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:14px">
+    <select id="llmProvider" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:14px">
       <option value="anthropic">Anthropic (Claude)</option>
       <option value="openai">OpenAI (GPT)</option>
       <option value="halo_org">Org AI (shared key from Halo — no personal key)</option>
@@ -85,7 +210,7 @@
       <label>OpenAI API key <span style="color:var(--muted)">(stored in Windows Credential Manager)</span></label>
       <input id="openaiKey" type="password" placeholder="sk-…">
     </div>
-    <div id="orgAiRow" style="display:none;border:1px solid #334155;border-radius:8px;padding:10px;margin-top:8px">
+    <div id="orgAiRow" style="display:none;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
         Uses your organization's shared AI key, stored in an encrypted custom
         field in Halo. Connect to Halo, then fetch it — you never type or see the key.
@@ -98,7 +223,7 @@
           <label style="font-size:12px">Halo client id holding the encrypted field</label>
           <input id="orgAiClientId" type="number" placeholder="e.g. 12" style="width:160px">
           <label style="font-size:12px">Underlying provider</label>
-          <select id="orgAiProvider" style="width:auto;padding:6px 8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text)">
+          <select id="orgAiProvider" style="width:auto;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
             <option value="openai">OpenAI (GPT)</option>
             <option value="anthropic">Anthropic (Claude)</option>
           </select>
@@ -134,7 +259,7 @@
       <label style="margin:0">Work end
         <input type="time" id="workEnd" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px"></label>
       <label style="margin:0">Every
-        <select id="digestInterval" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text)">
+        <select id="digestInterval" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
           <option value="60">1 hour</option>
           <option value="120">2 hours</option>
           <option value="180">3 hours</option>
@@ -169,16 +294,23 @@
     </h2>
     <div id="updateStatus" style="font-size:12px;color:var(--muted)">Checking…</div>
     <button id="btnApplyUpdate" style="margin-top:10px;display:none;background:var(--good)">Update now</button>
-    <button id="btnRestart" style="margin-top:10px;background:#334155">Restart TimeScribe</button>
+    <button id="btnRestart" style="margin-top:10px;background:var(--border)">Restart TimeScribe</button>
+    <button id="btnInstallApp" style="margin-top:10px">Install as app</button>
+    <button id="btnDeskShortcut" style="margin-top:10px;background:var(--border)">Desktop shortcut instead</button>
+    <div id="installMsg" style="font-size:12px;margin-top:6px"></div>
     <p style="color:var(--muted);font-size:11px;margin-top:8px">
-      Tip: in the app window's ⋯ menu (or the address bar), choose <em>Install TimeScribe</em>
-      to pin it as its own app with the TimeScribe icon.</p>
+      Click <em>Install as app</em>: TimeScribe reopens in a normal Edge
+      window with an <strong>Install</strong> (⊕) icon in the address bar —
+      click it (or <strong>⋯ → Apps → Install TimeScribe</strong>). Edge then
+      registers TimeScribe as its own app with the TimeScribe icon that pins
+      and reopens correctly. Prefer not to use a PWA? <em>Desktop shortcut
+      instead</em> drops a launcher on your desktop.</p>
   </div>
 
   <div class="card">
     <h2>Logs
       <button id="btnLogsRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
-      <select id="logLines" style="width:auto;padding:4px 8px;font-size:12px;margin-left:8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text)">
+      <select id="logLines" style="width:auto;padding:4px 8px;font-size:12px;margin-left:8px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
         <option value="100">last 100</option>
         <option value="200" selected>last 200</option>
         <option value="500">last 500</option>
@@ -186,7 +318,7 @@
       </select>
     </h2>
     <div id="logPath" style="color:var(--muted);font-size:11px;margin-bottom:6px"></div>
-    <pre id="logView" style="max-height:420px;overflow:auto;background:#0f172a;border:1px solid #334155;
+    <pre id="logView" style="max-height:420px;overflow:auto;background:var(--input-bg);border:1px solid var(--border);
          border-radius:6px;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;
          color:var(--text)">Click refresh to load.</pre>
   </div>
@@ -201,7 +333,7 @@
       <span style="color:var(--muted)">–</span>
       <input type="time" id="timeTo" style="width:auto;padding:4px 8px;font-size:12px" title="optional window end">
       <button id="btnDigest" style="margin:0 0 0 8px;padding:4px 12px;font-size:12px">Run digest</button>
-      <span id="awPill" class="pill" style="font-size:11px;margin-left:8px"></span>
+      <button id="btnRebuild" style="margin:0 0 0 4px;padding:4px 12px;font-size:12px;background:#f59e0b" title="Delete this day's digest and unposted drafts, then rebuild from raw activity (posted entries are kept)">Purge &amp; rebuild</button>
     </h2>
     <div id="sumStrip" style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 10px;font-size:12px;color:var(--muted)"></div>
     <div id="digestList" style="font-size:13px;line-height:1.7"></div>
@@ -215,15 +347,24 @@
       <button id="btnPostDrafts" style="margin:0;padding:4px 12px;font-size:12px;background:var(--good)">Post approved</button>
     </h2>
     <div id="msg2" style="font-size:13px;min-height:16px;margin-bottom:6px"></div>
+    <div id="bulkBar" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--input-bg)">
+      <label style="margin:0;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="selAll" style="width:auto;margin:0"> <span id="selCount">0 selected</span>
+      </label>
+      <button id="bulkApprove" style="margin:0;padding:3px 12px;font-size:12px;background:var(--good)">Approve</button>
+      <button id="bulkReject" style="margin:0;padding:3px 12px;font-size:12px;background:var(--bad)">Reject</button>
+      <button id="bulkDelete" style="margin:0;padding:3px 12px;font-size:12px;background:#64748b">Delete</button>
+      <button id="bulkIgnore" style="margin:0;padding:3px 12px;font-size:12px;background:#7c2d12">Ignore</button>
+    </div>
     <datalist id="ticketOptions"></datalist>
     <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
       <div style="flex:3;min-width:360px">
         <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
           <button id="subDrafts" class="subtab active-subtab" style="margin:0;padding:4px 14px;font-size:12px">Drafts</button>
-          <button id="subPosted" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:#334155">Posted</button>
-          <button id="subIgnored" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:#334155">Ignored</button>
+          <button id="subPosted" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:var(--border)">Posted</button>
+          <button id="subIgnored" class="subtab" style="margin:0;padding:4px 14px;font-size:12px;background:var(--border)">Ignored</button>
           <label style="margin:0 0 0 auto;font-size:11px;color:var(--muted)">Sort
-            <select id="draftSort" style="width:auto;padding:3px 6px;font-size:11px;margin-left:4px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:var(--text)">
+            <select id="draftSort" style="width:auto;padding:3px 6px;font-size:11px;margin-left:4px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
               <option value="smart">Status</option>
               <option value="start_asc">Start ↑</option>
               <option value="start_desc">Start ↓</option>
@@ -235,7 +376,7 @@
         <div id="postedTodayList" style="font-size:13px;display:none"></div>
         <div id="ignoredBox" style="font-size:13px;display:none"></div>
       </div>
-      <div style="flex:2;min-width:300px;border-left:1px solid #334155;padding-left:16px">
+      <div style="flex:2;min-width:300px;border-left:1px solid var(--border);padding-left:16px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <strong style="font-size:13px">Halo timesheet</strong>
           <button id="btnTsRefresh" style="margin:0;padding:3px 10px;font-size:11px">Refresh</button>
@@ -299,6 +440,62 @@ function setMsg(text, ok) {
   }
 }
 
+// ---- blueprint corner marks on every card ----
+document.querySelectorAll('.card').forEach(c => {
+  for (const pos of ['tl', 'tr', 'bl', 'br']) {
+    const i = document.createElement('i');
+    i.className = 'corner ' + pos;
+    c.appendChild(i);
+  }
+});
+
+// ---- theme (light default, per the blueprint design; dark inverts) ----
+function applyTheme(mode) {
+  document.body.classList.toggle('dark', mode === 'dark');
+  $('btnTheme').textContent = mode === 'dark' ? '\u2600\ufe0f' : '\ud83c\udf19';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = mode === 'dark' ? '#191b1d' : '#f2f2f3';
+  try { localStorage.setItem('ts_theme', mode); } catch (e) { /* ignore */ }
+}
+$('btnTheme').onclick = () => {
+  applyTheme(document.body.classList.contains('dark') ? 'light' : 'dark');
+};
+try { applyTheme(localStorage.getItem('ts_theme') === 'dark' ? 'dark' : 'light'); } catch (e) { /* ignore */ }
+
+// ---- profile menu / sign out ----
+$('btnProfile').onclick = (ev) => {
+  ev.stopPropagation();
+  $('profileMenu').classList.toggle('open');
+};
+document.addEventListener('click', () => $('profileMenu').classList.remove('open'));
+$('profileMenu').onclick = (ev) => ev.stopPropagation();
+
+async function signOutHalo() {
+  await api('/api/halo/signout', {method:'POST'});
+  await refreshStatus();
+}
+$('menuSwitchUser').onclick = async () => {
+  $('profileMenu').classList.remove('open');
+  if (!confirm('Sign out of Halo? Your local drafts and digests are kept. ' +
+      'You\'ll be sent to Settings to connect again as another user.')) return;
+  try {
+    await signOutHalo();
+    showTab('settings');
+    setMsg('Signed out. Click "Connect to Halo" to sign in as another user.', true);
+  } catch (e) { setMsg('Sign out failed: ' + e.message, false); }
+};
+$('menuSwitchHalo').onclick = async () => {
+  $('profileMenu').classList.remove('open');
+  if (!confirm('Sign out and connect to a different Halo instance? ' +
+      'You\'ll be sent to Settings to change the Halo URL and Client ID.')) return;
+  try {
+    await signOutHalo();
+    showTab('settings');
+    $('haloUrl').focus();
+    setMsg('Signed out. Enter the new Halo URL and Client ID, save, then connect.', true);
+  } catch (e) { setMsg('Sign out failed: ' + e.message, false); }
+};
+
 async function refreshStatus() {
   try {
     const s = await api('/api/status');
@@ -307,8 +504,10 @@ async function refreshStatus() {
     $('pillHalo').className = 'pill ' + (s.halo_connected ? 'ok' : 'err');
     $('pillKey').textContent = 'Anthropic key: ' + (s.anthropic_key_set ? 'set' : 'missing');
     $('pillKey').className = 'pill ' + (s.anthropic_key_set ? 'ok' : 'err');
-    $('pillAgent').textContent = s.agent ? ('Signed in as ' + s.agent.name + ' (#' + s.agent.id + ')') : '';
-    $('pillAgent').style.display = s.agent ? '' : 'none';
+    $('menuWho').textContent = s.agent
+      ? ('Signed in as ' + s.agent.name + ' (#' + s.agent.id + ')\n' + (s.config.halo_base_url || ''))
+      : 'Not signed in to Halo';
+    $('menuWho').style.whiteSpace = 'pre-line';
     if (s.config.halo_base_url) $('haloUrl').value = s.config.halo_base_url;
     if (s.config.halo_client_id) $('haloClientId').value = s.config.halo_client_id;
     if (s.llm_provider) $('llmProvider').value = s.llm_provider;
@@ -374,8 +573,8 @@ async function loadDigest() {
   } catch (e) { /* ignore */ }
   try {
     const s = await api('/api/activity/status');
-    $('awPill').textContent = 'ActivityWatch: ' + (s.activitywatch ? 'connected' : 'not running');
-    $('awPill').className = 'pill ' + (s.activitywatch ? 'ok' : 'err');
+    $('pillAW').textContent = 'ActivityWatch: ' + (s.activitywatch ? 'connected' : 'not running');
+    $('pillAW').className = 'pill ' + (s.activitywatch ? 'ok' : 'err');
   } catch (e) { /* ignore */ }
 }
 
@@ -392,12 +591,25 @@ $('btnDigest').onclick = async () => {
   finally { $('btnDigest').disabled = false; $('btnDigest').textContent = 'Run digest'; }
 };
 
+$('btnRebuild').onclick = async () => {
+  if (!confirm('Purge this day\'s digest and unposted drafts, then rebuild from raw activity? Posted entries are kept.')) return;
+  $('btnRebuild').disabled = true;
+  $('btnRebuild').textContent = 'Rebuilding…';
+  try {
+    const r = await api('/api/digest/rebuild?day=' + selDay(), {method:'POST'});
+    await loadDigest();
+    loadDrafts(); loadSummary();
+    setMsg('Rebuilt: ' + r.count + ' digest entries (' + r.preserved_posted + ' posted entries preserved).', true);
+  } catch (e) { setMsg('Rebuild failed: ' + e.message, false); }
+  finally { $('btnRebuild').disabled = false; $('btnRebuild').textContent = 'Purge & rebuild'; }
+};
+
 loadDigest();
 
 function draftRow(d, i, nbr) {
   nbr = nbr || {};
   const div = document.createElement('div');
-  div.style.cssText = 'border-bottom:1px solid #334155;padding:10px 0';
+  div.className = 'draft-row is-' + (d.status || 'draft');
   const conf = Math.round((d.confidence || 0) * 100);
   const statusColor = {draft:'var(--muted)', approved:'var(--good)',
                        rejected:'var(--bad)', posted:'var(--accent)'}[d.status] || 'var(--muted)';
@@ -412,6 +624,8 @@ function draftRow(d, i, nbr) {
 
   div.innerHTML = `
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      ${isPosted ? '' : `<input type="checkbox" class="dsel" data-i="${i}"
+             onchange="updateBulkBar()" style="width:auto;margin:0" title="select for bulk action">`}
       <input type="time" value="${d.start_time}" id="ds${i}" ${editable?'':'disabled'}
              style="width:auto;padding:3px 6px;font-size:12px">
       <span style="color:var(--muted)">–</span>
@@ -426,8 +640,8 @@ function draftRow(d, i, nbr) {
     </div>
     <div style="color:var(--muted);font-size:11px;margin:3px 0">${target}</div>
     <textarea id="dn${i}" ${editable?'':'disabled'} rows="2"
-      style="width:100%;margin:4px 0;padding:6px 8px;border-radius:6px;border:1px solid #334155;
-             background:#0f172a;color:var(--text);font-size:13px;font-family:inherit">${d.note}</textarea>
+      style="width:100%;margin:4px 0;padding:6px 8px;border-radius:6px;border:1px solid var(--border);
+             background:var(--input-bg);color:var(--text);font-size:13px;font-family:inherit">${d.note}</textarea>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:2px 0 4px">
       <label style="margin:0;font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
         <input type="checkbox" id="dnc${i}" ${d.no_charge?'checked':''} ${editable?'':'disabled'}
@@ -439,10 +653,11 @@ function draftRow(d, i, nbr) {
     </div>`;
 
   const btns = document.createElement('div');
+  btns.className = 'draft-actions';
   const mk = (label, bg, fn) => {
     const b = document.createElement('button');
     b.textContent = label;
-    b.style.cssText = `margin:2px 6px 0 0;padding:3px 12px;font-size:12px;background:${bg}`;
+    b.style.cssText = `padding:3px 12px;font-size:12px;background:${bg}`;
     b.onclick = fn;
     return b;
   };
@@ -513,7 +728,7 @@ async function loadIgnored() {
     box.innerHTML = '';
     r.ignored.forEach((g, idx) => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid #334155';
+      row.style.cssText = 'display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--border)';
       row.innerHTML = `<strong style="font-size:12px">${g.start_time} to ${g.end_time}</strong>`
         + `<span style="color:var(--muted);font-size:11px">${g.ticket_id ? '#'+g.ticket_id : 'no ticket'}</span>`
         + `<span style="flex:1;font-size:12px">${(g.note||'').replace(/</g,'&lt;')}</span>`;
@@ -580,20 +795,34 @@ async function repostDraft(i) {
   } catch (e) { setMsg('Repost failed: ' + e.message, false); }
 }
 
+// Read the current (possibly-edited) field values from a draft row, if the
+// row is rendered. Returns null when the inputs aren't on screen.
+function draftFields(i) {
+  if (!$('ds'+i)) return null;
+  const tid = ($('dt'+i).value || '').trim();
+  return {
+    index: i,
+    ticket_id: tid ? parseInt(tid, 10) : null,
+    note: $('dn'+i).value,
+    start_time: $('ds'+i).value,
+    end_time: $('de'+i).value,
+    no_charge: $('dnc'+i).checked,
+    private_note: $('dp'+i).value,
+  };
+}
+
+// Persist a row's edits without re-rendering (used before approve/post so
+// unsaved field changes aren't lost).
+async function persistDraftFields(i) {
+  const f = draftFields(i);
+  if (!f) return;
+  await api('/api/drafts/update?day=' + selDay(), {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(f)});
+}
+
 async function saveDraft(i) {
-  const tid = $('dt'+i).value.trim();
   try {
-    await api('/api/drafts/update?day=' + selDay(), {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        index: i,
-        ticket_id: tid ? parseInt(tid, 10) : null,
-        note: $('dn'+i).value,
-        start_time: $('ds'+i).value,
-        end_time: $('de'+i).value,
-        no_charge: $('dnc'+i).checked,
-        private_note: $('dp'+i).value,
-      })});
+    await persistDraftFields(i);
     setMsg('Draft updated.', true);
     loadDrafts();
   } catch (e) { setMsg('Update failed: ' + e.message, false); }
@@ -603,9 +832,9 @@ function showSubTab(which) {
   $('draftList').style.display = which === 'drafts' ? '' : 'none';
   $('postedTodayList').style.display = which === 'posted' ? '' : 'none';
   $('ignoredBox').style.display = which === 'ignored' ? '' : 'none';
-  $('subDrafts').style.background = which === 'drafts' ? 'var(--accent)' : '#334155';
-  $('subPosted').style.background = which === 'posted' ? 'var(--accent)' : '#334155';
-  $('subIgnored').style.background = which === 'ignored' ? 'var(--accent)' : '#334155';
+  $('subDrafts').style.background = which === 'drafts' ? 'var(--accent)' : 'var(--border)';
+  $('subPosted').style.background = which === 'posted' ? 'var(--accent)' : 'var(--border)';
+  $('subIgnored').style.background = which === 'ignored' ? 'var(--accent)' : 'var(--border)';
   if (which === 'ignored') loadIgnored();
 }
 $('subDrafts').onclick = () => showSubTab('drafts');
@@ -632,7 +861,7 @@ async function loadTimesheet() {
     }
     for (const t of r.rows) {
       const div = document.createElement('div');
-      div.style.cssText = 'border-bottom:1px solid #334155;padding:7px 0;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap';
+      div.style.cssText = 'border-bottom:1px solid var(--border);padding:7px 0;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap';
       const noCharge = (t.charge_type || '').toLowerCase().includes('no charge');
       const tkt = t.ticket_id
         ? (r.halo_base_url
@@ -698,11 +927,69 @@ async function loadDrafts() {
 
     $('subDrafts').textContent = `Drafts (${active.length})`;
     $('subPosted').textContent = `Posted (${posted.length})`;
+    updateBulkBar();
   } catch (e) { /* ignore */ }
 }
 
+function selectedIdxs() {
+  return [...document.querySelectorAll('#draftList .dsel:checked')]
+    .map(cb => parseInt(cb.dataset.i, 10));
+}
+
+function updateBulkBar() {
+  const boxes = document.querySelectorAll('#draftList .dsel');
+  const n = selectedIdxs().length;
+  $('bulkBar').style.display = boxes.length ? 'flex' : 'none';
+  $('selCount').textContent = n + ' selected';
+  $('selAll').checked = boxes.length > 0 && n === boxes.length;
+  for (const id of ['bulkApprove', 'bulkReject', 'bulkDelete', 'bulkIgnore'])
+    $(id).disabled = n === 0;
+}
+
+$('selAll').onchange = () => {
+  document.querySelectorAll('#draftList .dsel')
+    .forEach(cb => { cb.checked = $('selAll').checked; });
+  updateBulkBar();
+};
+
+async function bulkAction(action) {
+  const idxs = selectedIdxs();
+  if (!idxs.length) return;
+  const destructive = action === 'delete' || action === 'ignore';
+  if (destructive && !confirm(
+      (action === 'delete' ? 'Remove ' : 'Ignore ') + idxs.length +
+      ' selected entr' + (idxs.length === 1 ? 'y' : 'ies') + '?' +
+      (action === 'ignore' ? ' They won\'t come back when the digest re-runs.' : ''))) return;
+  try {
+    // Approving locks entries in for posting -- save each selected row's
+    // unsaved edits first so they aren't lost (rows on other pages/tabs
+    // aren't rendered and simply keep their stored values).
+    if (action === 'approve') {
+      for (const i of idxs) {
+        try { await persistDraftFields(i); } catch (e) { /* skip unrendered */ }
+      }
+    }
+    const r = await api('/api/drafts/bulk?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({indexes: idxs, action})});
+    setMsg(r.done + ' entr' + (r.done === 1 ? 'y' : 'ies') + ' ' +
+           ({approve:'approved', reject:'rejected', delete:'removed', ignore:'ignored'}[action]) +
+           (r.skipped_posted ? ' (' + r.skipped_posted + ' posted skipped)' : '') + '.', true);
+    loadDrafts(); loadSummary();
+    if (action === 'ignore') loadIgnored();
+  } catch (e) { setMsg('Bulk ' + action + ' failed: ' + e.message, false); }
+}
+
+$('bulkApprove').onclick = () => bulkAction('approve');
+$('bulkReject').onclick  = () => bulkAction('reject');
+$('bulkDelete').onclick  = () => bulkAction('delete');
+$('bulkIgnore').onclick  = () => bulkAction('ignore');
+
 async function draftAction(i, action) {
   try {
+    // Approving locks the entry in for posting, so save any unsaved edits
+    // to times/ticket/note/no-charge first -- otherwise they'd be lost.
+    if (action === 'approve') await persistDraftFields(i);
     await api('/api/drafts/action?day=' + selDay(), {method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({index: i, action})});
@@ -938,7 +1225,7 @@ function renderWeekdays() {
     const b = document.createElement('button');
     b.textContent = name;
     b.style.cssText = `margin:0;padding:5px 12px;font-size:12px;border-radius:6px;`
-      + `background:${on ? 'var(--accent)' : '#334155'};color:${on ? '#04121e' : 'var(--text)'}`;
+      + `background:${on ? 'var(--accent)' : 'var(--border)'};color:${on ? '#04121e' : 'var(--text)'}`;
     b.onclick = () => {
       if (schedDays.includes(idx)) schedDays = schedDays.filter(d => d !== idx);
       else schedDays = [...schedDays, idx].sort();
@@ -978,44 +1265,108 @@ $('btnSaveSchedule').onclick = async () => {
 };
 loadSchedule();
 
-// ---- browser sources ----
+// ---- browser sources: one paginated table, tab per browser ----
+const browserState = { data: [], tab: 0, page: 0, sel: {} };
+const BROWSER_PAGE_SIZE = 10;
+
 async function loadBrowsers() {
   const box = $('browserList');
   box.innerHTML = '<span style="color:var(--muted)">Scanning…</span>';
   try {
     const r = await api('/api/browsers');
-    if (!r.browsers.length) {
-      box.innerHTML = '<span style="color:var(--muted)">No Chromium browsers found on this machine.</span>';
-      return;
-    }
-    box.innerHTML = '';
-    for (const b of r.browsers) {
-      const grp = document.createElement('div');
-      grp.style.cssText = 'margin-bottom:10px';
-      grp.innerHTML = `<div style="font-weight:600;font-size:13px;margin-bottom:4px">${b.browser}</div>`;
-      for (const p of b.profiles) {
-        const id = 'bp_' + p.sid.replace(/[^a-z0-9]/gi, '_');
-        const row = document.createElement('label');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;margin:3px 0 3px 8px;cursor:pointer';
-        row.innerHTML = `<input type="checkbox" id="${id}" data-sid="${p.sid}" ${p.enabled?'checked':''} style="width:auto;margin:0">`
-          + `<span>${p.name}</span><span style="color:var(--muted);font-size:11px">(${p.folder})</span>`;
-        grp.appendChild(row);
-      }
-      box.appendChild(grp);
-    }
+    browserState.data = r.browsers || [];
+    browserState.tab = Math.min(browserState.tab, Math.max(0, browserState.data.length - 1));
+    browserState.page = 0;
+    browserState.sel = {};
+    for (const b of browserState.data)
+      for (const p of b.profiles) browserState.sel[p.sid] = !!p.enabled;
+    renderBrowsers();
   } catch (e) {
     box.innerHTML = '<span class="err-text">Scan failed: ' + e.message + '</span>';
   }
 }
+
+function renderBrowsers() {
+  const box = $('browserList');
+  const data = browserState.data;
+  if (!data.length) {
+    box.innerHTML = '<span style="color:var(--muted)">No Chromium browsers found on this machine.</span>';
+    return;
+  }
+  box.innerHTML = '';
+
+  // one tab per detected browser (shows enabled/total)
+  const tabs = document.createElement('div');
+  tabs.style.cssText = 'display:inline-flex;border:1px solid var(--border);margin-bottom:10px';
+  data.forEach((b, i) => {
+    const active = i === browserState.tab;
+    const on = b.profiles.filter(p => browserState.sel[p.sid]).length;
+    const t = document.createElement('button');
+    t.textContent = `${b.browser} (${on}/${b.profiles.length})`;
+    t.style.cssText = 'margin:0;padding:6px 14px;font-size:13px;border-color:transparent;' +
+      (active ? 'background:var(--accent);color:var(--btn-text)'
+              : 'background:transparent;color:var(--text)');
+    if (i > 0) t.style.borderLeft = '1px solid var(--border)';
+    t.onclick = () => { browserState.tab = i; browserState.page = 0; renderBrowsers(); };
+    tabs.appendChild(t);
+  });
+  box.appendChild(tabs);
+
+  // single table showing the selected browser's profiles, 10 per page
+  const b = data[browserState.tab];
+  const pages = Math.max(1, Math.ceil(b.profiles.length / BROWSER_PAGE_SIZE));
+  browserState.page = Math.min(browserState.page, pages - 1);
+  const rows = b.profiles.slice(browserState.page * BROWSER_PAGE_SIZE,
+                                (browserState.page + 1) * BROWSER_PAGE_SIZE);
+
+  const tbl = document.createElement('table');
+  tbl.innerHTML = '<thead><tr><th style="width:34px"></th><th>Profile</th><th>Folder</th></tr></thead>';
+  const tb = document.createElement('tbody');
+  for (const p of rows) {
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    const td0 = document.createElement('td');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!browserState.sel[p.sid];
+    cb.style.cssText = 'width:auto;margin:0';
+    cb.onchange = () => { browserState.sel[p.sid] = cb.checked; renderBrowsers(); };
+    td0.appendChild(cb);
+    const td1 = document.createElement('td'); td1.textContent = p.name;
+    const td2 = document.createElement('td'); td2.textContent = p.folder;
+    td2.style.cssText = 'color:var(--muted);font-size:11px';
+    tr.append(td0, td1, td2);
+    tr.onclick = (ev) => { if (ev.target !== cb) { cb.checked = !cb.checked; cb.onchange(); } };
+    tb.appendChild(tr);
+  }
+  tbl.appendChild(tb);
+  box.appendChild(tbl);
+
+  if (pages > 1) {
+    const pag = document.createElement('div');
+    pag.style.cssText = 'display:flex;align-items:center;gap:10px;margin-top:8px;font-size:12px;color:var(--muted)';
+    const mkPg = (label, dis, fn) => {
+      const x = document.createElement('button');
+      x.textContent = label; x.disabled = dis;
+      x.style.cssText = 'margin:0;padding:3px 12px;font-size:12px;background:transparent;color:var(--accent);border:1px solid var(--border)';
+      x.onclick = fn;
+      return x;
+    };
+    pag.appendChild(mkPg('‹ Prev', browserState.page === 0,
+                         () => { browserState.page--; renderBrowsers(); }));
+    const span = document.createElement('span');
+    span.textContent = `Page ${browserState.page + 1} of ${pages} · ${b.profiles.length} profiles`;
+    pag.appendChild(span);
+    pag.appendChild(mkPg('Next ›', browserState.page >= pages - 1,
+                         () => { browserState.page++; renderBrowsers(); }));
+    box.appendChild(pag);
+  }
+}
 $('btnBrowsersRefresh').onclick = loadBrowsers;
 $('btnSaveBrowsers').onclick = async () => {
-  const map = {};
-  $('browserList').querySelectorAll('[data-sid]').forEach(cb => {
-    map[cb.getAttribute('data-sid')] = cb.checked;
-  });
   try {
     await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({browser_profiles: map})});
+      body: JSON.stringify({browser_profiles: {...browserState.sel}})});
     $('browserMsg').textContent = 'Sources saved. Next digest will use them.';
     $('browserMsg').className = 'ok-text';
   } catch (e) {
@@ -1059,6 +1410,34 @@ $('btnApplyUpdate').onclick = async () => {
   } finally { $('btnApplyUpdate').disabled = false; }
 };
 checkUpdate(false);   // quick check on load (no network fetch)
+
+$('btnInstallApp').onclick = async () => {
+  const el = $('installMsg');
+  el.className = ''; el.textContent = 'Opening install window…';
+  try {
+    await api('/api/install_window', {method:'POST'});
+    el.className = 'ok-text';
+    el.innerHTML = 'Opened a normal Edge window. Click the <strong>Install</strong> (⊕) icon ' +
+      'in its address bar, or <strong>⋯ → Apps → Install TimeScribe</strong>.';
+  } catch (e) {
+    el.className = 'err-text';
+    el.textContent = 'Could not open the install window: ' + e.message;
+  }
+};
+
+$('btnDeskShortcut').onclick = async () => {
+  const el = $('installMsg');
+  el.className = ''; el.textContent = 'Creating shortcut…';
+  try {
+    const r = await api('/api/create_shortcut', {method:'POST'});
+    el.className = 'ok-text';
+    el.innerHTML = 'Desktop shortcut created' + (r.path ? ' (' + r.path + ')' : '') +
+      '. Right-click it → <strong>Pin to taskbar</strong>.';
+  } catch (e) {
+    el.className = 'err-text';
+    el.textContent = 'Could not create the shortcut: ' + e.message;
+  }
+};
 
 $('btnRestart').onclick = async () => {
   if (!confirm('Restart TimeScribe now? The dashboard will reconnect in a few seconds.')) return;
@@ -1109,7 +1488,7 @@ async function loadTimeline() {
 
   // hour gridlines + labels
   for (let m = lo; m <= hi; m += 60) {
-    s += `<line x1="${x(m)}" y1="${TOP-6}" x2="${x(m)}" y2="${H-8}" stroke="#334155" stroke-width="1"/>`;
+    s += `<line x1="${x(m)}" y1="${TOP-6}" x2="${x(m)}" y2="${H-8}" stroke="var(--border)" stroke-width="1"/>`;
     s += `<text x="${x(m)+3}" y="${TOP-9}" fill="#64748b" font-size="10">${tlFmt(m)}</text>`;
   }
   // AFK bands behind everything
@@ -1193,6 +1572,13 @@ $('btnAddManual').onclick = async () => {
     loadDrafts();
   } catch (e) { setMsg2('Add failed: ' + e.message, false); }
 };
+
+// ---- PWA: register the service worker so the app is installable ----
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+  });
+}
 </script>
 </body>
 </html>

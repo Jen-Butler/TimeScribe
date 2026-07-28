@@ -41,6 +41,11 @@ class HaloPSAAdapter(PSAAdapter):
         self.tenant_key = tenant_key
         self._access_token: Optional[str] = None
         self._access_token_expires_at: float = 0.0
+        # Serializes token refresh across the scheduler / UI / MCP threads.
+        # Halo rotates refresh tokens (one-time use), so two concurrent
+        # refreshes with the same token make the second fail invalid_grant;
+        # without this lock that failure used to wipe the good rotated token.
+        self._token_lock = __import__("threading").Lock()
 
     @property
     def name(self) -> str:
@@ -82,6 +87,15 @@ class HaloPSAAdapter(PSAAdapter):
             pass
 
     # --- PSAAdapter interface ---
+
+    def sign_out(self) -> None:
+        """Forget all credentials for this tenant: live access token,
+        cached agent record, and the stored refresh token. The next
+        connect() runs a fresh OAuth flow (any user, any instance)."""
+        self._access_token = None
+        self._access_token_expires_at = 0.0
+        self._current_agent = None
+        self._clear_refresh_token()
 
     def is_authenticated(self) -> bool:
         # Either we have a live access_token, or we have a refresh_token we can use.
@@ -141,32 +155,72 @@ class HaloPSAAdapter(PSAAdapter):
         self._save_refresh_token(refresh)
         print(f"[halo] Authenticated. Access token expires in {tokens.get('expires_in')}s.")
 
+    def _fresh_enough(self) -> bool:
+        return bool(self._access_token
+                    and time.time() < self._access_token_expires_at - 30)
+
     def _ensure_access_token(self) -> str:
-        """Return a valid access_token, refreshing if needed."""
-        if self._access_token and time.time() < self._access_token_expires_at - 30:
+        """Return a valid access_token, refreshing if needed.
+
+        Refresh is serialized: the scheduler, UI, and MCP threads all call
+        this, and Halo rotates refresh tokens (one-time use). Without a lock,
+        two threads refresh with the same token at once -- one wins and
+        rotates, the other gets invalid_grant. We double-check inside the
+        lock (so only ONE network refresh happens per expiry) and, if a
+        refresh is rejected, RELOAD the stored token in case a sibling call
+        just rotated it, retrying once before declaring the session dead."""
+        if self._fresh_enough():
             return self._access_token
-        refresh = self._load_refresh_token()
-        if not refresh:
-            raise RuntimeError("No stored refresh token; call connect() first")
-        try:
-            tokens = refresh_access_token(
-                token_endpoint=self.token_endpoint,
-                client_id=self.client_id,
-                refresh_token=refresh,
-            )
-        except Exception as exc:
-            # Refresh token revoked/expired (e.g. the Halo application's
-            # permissions were changed, which invalidates all its tokens).
-            # Clear it so the UI shows "not connected" instead of endless
-            # background failures.
-            print(f"[halo] refresh token rejected ({exc}); clearing stored token")
-            self._clear_refresh_token()
-            self._access_token = None
-            raise RuntimeError(
-                "Halo session expired - reconnect via Settings > Connect to Halo") from exc
+
+        with self._token_lock:
+            # Another thread may have refreshed while we waited for the lock.
+            if self._fresh_enough():
+                return self._access_token
+
+            refresh = self._load_refresh_token()
+            if not refresh:
+                raise RuntimeError("No stored refresh token; call connect() first")
+
+            try:
+                tokens = self._do_refresh(refresh)
+            except Exception as exc:
+                # Could be a genuine revocation OR a benign race: a sibling
+                # thread rotated the token microseconds ago. Re-read the
+                # stored token; if it changed, retry once with the new one.
+                current = self._load_refresh_token()
+                if current and current != refresh:
+                    print("[halo] refresh raced with another call; retrying "
+                          "with the rotated token")
+                    try:
+                        tokens = self._do_refresh(current)
+                    except Exception as exc2:
+                        exc = exc2
+                        current = None   # fall through to the failure path
+                    else:
+                        return self._apply_tokens(tokens)
+                # If a sibling already produced a live access token, use it
+                # rather than tearing down a working session.
+                if self._fresh_enough():
+                    return self._access_token
+                print(f"[halo] refresh token rejected ({exc}); clearing stored token")
+                self._clear_refresh_token()
+                self._access_token = None
+                raise RuntimeError(
+                    "Halo session expired - reconnect via Settings > Connect to Halo") from exc
+
+            return self._apply_tokens(tokens)
+
+    def _do_refresh(self, refresh: str) -> dict:
+        return refresh_access_token(
+            token_endpoint=self.token_endpoint,
+            client_id=self.client_id,
+            refresh_token=refresh,
+        )
+
+    def _apply_tokens(self, tokens: dict) -> str:
         self._access_token = tokens.get("access_token")
         self._access_token_expires_at = time.time() + int(tokens.get("expires_in", 3600))
-        # Halo may or may not rotate the refresh_token; save if present
+        # Halo rotates the refresh_token on each use; persist the new one.
         if tokens.get("refresh_token"):
             self._save_refresh_token(tokens["refresh_token"])
         return self._access_token
@@ -521,6 +575,68 @@ class HaloPSAAdapter(PSAAdapter):
         rec = resp[0] if isinstance(resp, list) and resp else resp
         return str((rec or {}).get("id") or "")
 
+    def _fetch_my_appointments(self, from_dt, to_dt) -> list:
+        """GET /Appointment scoped to the logged-in agent ONLY.
+
+        Without an agent filter Halo returns every agent's appointments,
+        which polluted digests with other technicians' meetings. Params
+        mirror the query Halo's own scheduler UI issues: `agents=<id>`,
+        UTC Z-timestamps + utcoffset, appointments only (no shifts /
+        recurring masters). We still post-filter defensively.
+        """
+        from datetime import timezone as _tzu
+        my_id = self.current_agent_id
+        # JS getTimezoneOffset convention: minutes to ADD to local to get
+        # UTC (EDT -> 240).
+        local_off = datetime.now().astimezone().utcoffset()
+        utcoffset = -int(local_off.total_seconds() // 60) if local_off else 0
+
+        def _utc(d: datetime) -> str:
+            if d.tzinfo is None:
+                d = d.astimezone()          # naive = local
+            return d.astimezone(_tzu.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        raw = self._api_get("Appointment", params={
+            "start_date": _utc(from_dt),
+            "end_date":   _utc(to_dt),
+            "agents":     str(my_id),
+            "utcoffset":  utcoffset,
+            "appointmentsonly":       "true",
+            "excluderecurringmaster": "true",
+            "showshifts":             "false",
+        })
+        rows = raw if isinstance(raw, list) else (raw.get("appointments") or [])
+
+        def _mine(r: dict) -> bool:
+            attributed = False
+            for k in ("agent_id", "agentid", "assigned_agent_id"):
+                v = r.get(k)
+                if v not in (None, "", 0, -1):
+                    attributed = True
+                    try:
+                        if int(v) == my_id:
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+            agents = r.get("agents")
+            if isinstance(agents, list) and agents:
+                attributed = True
+                for a in agents:
+                    aid = a.get("id") if isinstance(a, dict) else a
+                    try:
+                        if int(aid) == my_id:
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+            # No agent attribution at all -> keep (can't misattribute).
+            return not attributed
+
+        mine = [r for r in rows if isinstance(r, dict) and _mine(r)]
+        dropped = len([r for r in rows if isinstance(r, dict)]) - len(mine)
+        if dropped:
+            print(f"[halo] dropped {dropped} appointments belonging to other agents")
+        return mine
+
     def get_day_meetings(self, since, until) -> list:
         """Calendar appointments for the day, as attribution signals for the
         digest. Halo flags Teams/online meetings and links them to a ticket
@@ -528,14 +644,10 @@ class HaloPSAAdapter(PSAAdapter):
         meeting window was never the focused app.
 
         Returns [{start, end, subject, ticket_id, client, is_teams, online}]
-        with local HH:MM times.
+        with local HH:MM times. Scoped to the logged-in agent.
         """
         from datetime import timezone as _tzu
-        raw = self._api_get("Appointment", params={
-            "start_date": since.strftime("%Y-%m-%dT%H:%M:%S"),
-            "end_date":   until.strftime("%Y-%m-%dT%H:%M:%S"),
-        })
-        rows = raw if isinstance(raw, list) else (raw.get("appointments") or [])
+        rows = self._fetch_my_appointments(since, until)
 
         def _dt(v):
             if not v:
@@ -548,6 +660,14 @@ class HaloPSAAdapter(PSAAdapter):
             except ValueError:
                 return None
 
+        # Only meetings that have already ENDED count as signals -- a
+        # future or in-progress appointment may not happen as scheduled,
+        # so it must never turn into a digest entry or draft.
+        cutoff = until
+        if cutoff.tzinfo is not None:
+            cutoff = cutoff.astimezone().replace(tzinfo=None)
+        cutoff = min(cutoff, datetime.now())
+
         logged_keys = False
         out = []
         for r in rows:
@@ -556,6 +676,8 @@ class HaloPSAAdapter(PSAAdapter):
             s, e = _dt(r.get("start_date")), _dt(r.get("end_date"))
             if s is None:
                 continue
+            if e is None or e > cutoff:
+                continue    # not finished yet -> skip until it has ended
             # Teams/online detection: Halo exposes this under a few names
             # across versions; also sniff a join URL / location text.
             blob = " ".join(str(r.get(k) or "") for k in
@@ -586,17 +708,21 @@ class HaloPSAAdapter(PSAAdapter):
         return out
 
     def list_calendar_events(self, from_dt, to_dt) -> List[CalendarEvent]:
-        raw = self._api_get("Appointment", params={
-            "start_date": from_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-            "end_date":   to_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-        })
-        rows = raw if isinstance(raw, list) else raw.get("appointments") or []
+        from datetime import timezone as _tzu
+
+        def _local(v: str) -> datetime:
+            d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=_tzu.utc)   # Halo returns UTC
+            return d.astimezone().replace(tzinfo=None)
+
+        rows = self._fetch_my_appointments(from_dt, to_dt)
         out: List[CalendarEvent] = []
         for r in rows:
             out.append(CalendarEvent(
                 id=str(r.get("id")),
-                start_local=datetime.fromisoformat(r["start_date"].rstrip("Z")),
-                end_local=datetime.fromisoformat(r["end_date"].rstrip("Z")),
+                start_local=_local(r["start_date"]),
+                end_local=_local(r["end_date"]),
                 subject=r.get("subject") or "",
                 all_day=bool(r.get("allday")),
                 ticket_id=r.get("ticket_id") if r.get("ticket_id", -1) > 0 else None,

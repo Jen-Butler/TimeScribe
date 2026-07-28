@@ -108,13 +108,26 @@ DRAFT rules:
 - The FOCUSED (active) window is what the user was actually doing at a given
   moment; weight it above background browser tabs when deciding the ticket
   for that minute.
-- CALENDAR MEETINGS are authoritative for their own time block: attribute
-  that span to the meeting's ticket (or the meeting's client, matching to
-  that client's ticket) even if the meeting was never the focused window --
-  the user was in the meeting. A Teams/online meeting from 10:00-10:30 with
-  a client is billable time for that client, not idle/AFK.
+- CALENDAR MEETINGS ARE CONTEXT, NOT GROUND TRUTH. The activity feed is the
+  source of truth for what actually happened. Use a calendar entry only to:
+  (a) confirm the digest covers that time window, and (b) SUGGEST a ticket
+  for activity that the feed shows really occurred in that window. A meeting
+  on the calendar does NOT prove the user attended or did that work.
+  * Only create a ticket-matched draft for a meeting's window if the feed
+    shows corroborating activity then -- a Teams window focused, related
+    browser/app activity, or notes. If the feed shows the user was doing
+    something ELSE during a scheduled meeting, follow the feed, not the
+    calendar.
+  * NEVER copy a meeting's subject or ticket into a draft note as if it were
+    the work done. Write the note from the actual activity. Do not invent
+    engagement, outcomes, or ticket work that the feed doesn't support.
+  * A scheduled meeting with NO corroborating activity in the feed is not
+    billable work -- omit it or leave it unmatched with reason "calendar
+    only, no activity". Do not fabricate a draft from the calendar alone.
 - Round to nearest 5 min. Minimum entry 10 min. confidence: 0.9+ explicit
-  ticket/subject evidence; 0.7-0.9 strong client+topic; below 0.7 -> unmatched.
+  ticket/subject evidence in the ACTIVITY FEED; 0.7-0.9 strong feed-based
+  client+topic match; below 0.7, or calendar-only with no feed support ->
+  unmatched.
 - General/internal activity (email triage, team meetings, this app) ->
   unmatched with a short reason. Never invent tickets; only use provided ids.
 - Every draft's time range must correspond to entries in your digest."""
@@ -153,6 +166,14 @@ def build_combined(adapter, target: Optional[date_cls] = None,
     since = since or _dtm.combine(target, _tm.min)
     until = until or _dtm.combine(target, _tm.max)
 
+    # Clamp to elapsed time: no digest entries or drafts for the future.
+    now = _dtm.now()
+    if until > now:
+        until = now
+    if since >= until:
+        print("[combined] window is entirely in the future; nothing to do")
+        return {"entries": [], "drafts": [], "unmatched": []}
+
     feed = digest_mod.build_signal_feed(since, until)
     if not feed.strip():
         print("[combined] no signals in window")
@@ -188,11 +209,31 @@ def build_combined(adapter, target: Optional[date_cls] = None,
     except Exception as exc:
         print(f"[combined] meeting fetch failed (continuing): {exc}")
 
+    # Time that's already logged (posted through this app OR entered
+    # directly on the Halo timesheet) must not be drafted again.
+    ts_rows = []
+    try:
+        ts = adapter.get_day_timesheet(since, until)
+        ts_rows = ts.get("rows", [])
+    except Exception as exc:
+        print(f"[combined] timesheet fetch failed (continuing): {exc}")
+    covered = drafts.covered_windows(target, ts_rows)
+    covered_lines = [f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}"
+                     for s, e in covered]
+
     user_prompt = (
         f"Date: {target.isoformat()} (window {win_lo}-{win_hi})\n\n"
         f"RAW ACTIVITY FEED:\n---\n{feed}\n---\n\n"
-        + (f"CALENDAR MEETINGS ({len(meeting_lines)}):\n"
+        + (f"CALENDAR CONTEXT ({len(meeting_lines)} scheduled meetings) -- "
+           "hints for ensuring digest coverage and SUGGESTING a ticket only "
+           "where the activity feed shows the work really happened; not proof "
+           "of attendance or billable work on their own:\n"
            + "\n".join(meeting_lines) + "\n\n" if meeting_lines else "")
+        + (f"TIME ALREADY LOGGED ({len(covered_lines)} windows) -- the "
+           "technician has already entered time covering these ranges. "
+           "Still produce digest entries for them, but do NOT produce any "
+           "draft or unmatched item overlapping them:\n"
+           + "\n".join(covered_lines) + "\n\n" if covered_lines else "")
         + f"OPEN TICKETS ({len(ticket_lines)}):\n" + "\n".join(ticket_lines)
         + f"\n\nAll time_ranges must fall within {win_lo}-{win_hi}. "
         "Produce the JSON described in the system prompt."
@@ -228,6 +269,7 @@ def build_combined(adapter, target: Optional[date_cls] = None,
     existing = drafts.load(target)
     posted = [x for x in existing if x.get("status") == "posted"]
     new_items = drafts.filter_ignored(target, new_items)
+    new_items = drafts.filter_covered(new_items, covered)   # hard backstop
     drafts.save(target, posted + new_items)
     print(f"[combined] {len(resp.entries)} digest entries, "
           f"{len(resp.drafts)} matched drafts, {len(resp.unmatched)} unmatched "
@@ -254,10 +296,25 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
     digest_lines = [f"{e['time_range']} — {e['summary']}" for e in entries]
 
     cfg = appconfig.load()
+    from datetime import datetime as _dtm, time as _tm
+    ts_rows = []
+    try:
+        ts = adapter.get_day_timesheet(_dtm.combine(target, _tm.min),
+                                       _dtm.combine(target, _tm.max))
+        ts_rows = ts.get("rows", [])
+    except Exception as exc:
+        print(f"[inference] timesheet fetch failed (continuing): {exc}")
+    covered = drafts.covered_windows(target, ts_rows)
+    covered_lines = [f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}"
+                     for s, e in covered]
+
     user_prompt = (
         f"Date: {target.isoformat()}\n\n"
         f"ACTIVITY DIGEST ({len(digest_lines)} entries):\n"
         + "\n".join(digest_lines)
+        + (f"\n\nTIME ALREADY LOGGED ({len(covered_lines)} windows) -- do "
+           "NOT produce any draft or unmatched item overlapping these:\n"
+           + "\n".join(covered_lines) if covered_lines else "")
         + f"\n\nOPEN TICKETS ({len(ticket_lines)}):\n"
         + "\n".join(ticket_lines)
         + "\n\nProduce the JSON described in the system prompt."
@@ -303,6 +360,7 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
     existing = drafts.load(target)
     posted = [x for x in existing if x.get("status") == "posted"]
     new_items = drafts.filter_ignored(target, new_items)
+    new_items = drafts.filter_covered(new_items, covered)   # hard backstop
     drafts.save(target, posted + new_items)
 
     return {

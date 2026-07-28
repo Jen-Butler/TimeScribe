@@ -173,6 +173,13 @@ def _read_one(history_path: Path, since: datetime, until: Optional[datetime],
             url = row["url"] or ""
             if not url or any(url.startswith(p) for p in (ignore_prefixes or [])):
                 continue
+            # visit_duration is microseconds; 0 = unknown/still open (Chrome
+            # only writes it when the visit ends), so only drop visits we
+            # KNOW lasted under a second -- e.g. a window opened by mistake
+            # and closed immediately.
+            dur_us = row["visit_duration"] or 0
+            if 0 < dur_us < 1_000_000:
+                continue
             t = webkit_to_datetime(row["visit_time"])
             prev = last_seen.get(url)
             if prev and (t - prev).total_seconds() < dedupe_seconds:

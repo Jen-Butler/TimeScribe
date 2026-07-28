@@ -73,6 +73,16 @@ def save_digest(d: date_cls, entries: List[dict]) -> None:
     _digest_path(d).write_text(json.dumps(entries, indent=2), encoding="utf-8")
 
 
+def delete_digest(d: date_cls) -> bool:
+    """Purge the stored digest for a day. Returns True if one existed."""
+    p = _digest_path(d)
+    if p.exists():
+        p.unlink()
+        print(f"[digest] purged stored digest for {d}")
+        return True
+    return False
+
+
 def build_signal_feed(since: datetime, until: datetime) -> str:
     """Merge browser + AW into one chronological text feed for the LLM."""
     cfg = appconfig.load()
@@ -117,6 +127,16 @@ def run_digest(target: Optional[date_cls] = None,
     if full_day:
         since = datetime.combine(target, time_cls.min)
         until = datetime.combine(target, time_cls.max)
+
+    # Never digest time that hasn't happened yet -- future windows would
+    # only produce speculative entries (e.g. calendar meetings that may
+    # not actually occur).
+    now = datetime.now()
+    if until > now:
+        until = now
+    if since >= until:
+        print("[digest] window is entirely in the future; nothing to do")
+        return []
 
     feed = build_signal_feed(since, until)
     if not feed.strip():

@@ -67,6 +67,21 @@ def manifest():
     return Response(status_code=404)
 
 
+@app.get("/sw.js")
+def service_worker():
+    """Serve the service worker at the ROOT scope. A registered service
+    worker with a fetch handler is what makes the dashboard installable as
+    a PWA (Edge/Chrome won't offer 'Install as app' without one).
+    Service-Worker-Allowed lets it control the whole origin."""
+    from fastapi.responses import FileResponse, Response
+    sw = _ui_path().parent / "sw.js"
+    if sw.exists():
+        return FileResponse(str(sw), media_type="text/javascript",
+                            headers={"Service-Worker-Allowed": "/",
+                                     "Cache-Control": "no-cache"})
+    return Response(status_code=404)
+
+
 @app.get("/{asset:path}.png")
 def ui_png(asset: str):
     """Serve PWA icon PNGs from the ui/ folder (icon-192, icon-512)."""
@@ -207,6 +222,43 @@ def halo_connect():
         _oauth_lock.release()
 
 
+@app.post("/api/install_window")
+def install_window():
+    """Open the dashboard in a normal Edge window so the user can install
+    it as a PWA (the default --app window hides Edge's install UI)."""
+    try:
+        from timescribe import app as _app
+        launched = _app.open_install_window()
+        return {"ok": True, "launched": launched}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/api/create_shortcut")
+def create_shortcut():
+    """Fallback: drop a Desktop shortcut that launches TimeScribe with its
+    own icon, for anyone who'd rather not install the PWA."""
+    try:
+        from timescribe import app as _app
+        path = _app.create_desktop_shortcut()
+        return {"ok": True, "path": path}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/api/halo/signout")
+def halo_signout():
+    """Sign out of Halo: clears the stored refresh token and cached
+    session so the next Connect runs a fresh OAuth login (same Halo,
+    different user — or change the URL in Settings for another Halo)."""
+    global _adapter
+    a = get_adapter()
+    if a is not None:
+        a.sign_out()
+    _adapter = None
+    return {"ok": True}
+
+
 @app.get("/api/tickets")
 def tickets(limit: int = 25):
     a = get_adapter()
@@ -293,6 +345,34 @@ def digest_get(day: str = None):
     return {"day": target.isoformat(), "entries": _digest.load_digest(target)}
 
 
+@app.post("/api/digest/rebuild")
+def digest_rebuild(day: str = None):
+    """Purge the day's stored digest AND unposted drafts, then rebuild
+    from scratch (combined digest+drafts when Halo is connected and
+    combined mode is on; plain digest otherwise). Posted drafts are
+    always preserved."""
+    from timescribe import drafts as _dr, inference as _inf
+    target = _date.fromisoformat(day) if day else _date.today()
+    _digest.delete_digest(target)
+    existing = _dr.load(target)
+    posted = [x for x in existing if x.get("status") == "posted"]
+    _dr.save(target, posted)
+    try:
+        cfg = appconfig.load()
+        a = get_adapter()
+        if (cfg.get("combined_digest_drafts", True)
+                and a is not None and a.is_authenticated()):
+            result = _inf.build_combined(a, target)
+            entries = [e.model_dump() if hasattr(e, "model_dump") else e
+                       for e in result.get("entries", [])]
+        else:
+            entries = _digest.run_digest(target)
+        return {"ok": True, "count": len(entries), "entries": entries,
+                "preserved_posted": len(posted)}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 # ---------- Time entry drafts ----------
 
 from datetime import datetime as _dt
@@ -332,6 +412,19 @@ def drafts_generate(day: str = None):
             "status": "draft",
         })
     new_items = _drafts.filter_ignored(target, new_items)
+    # Don't re-import windows already posted / on the Halo timesheet.
+    ts_rows = []
+    a = get_adapter()
+    if a is not None and a.is_authenticated():
+        try:
+            from datetime import datetime as _dtc, time as _tmc
+            ts_rows = a.get_day_timesheet(
+                _dtc.combine(target, _tmc.min),
+                _dtc.combine(target, _tmc.max)).get("rows", [])
+        except Exception:
+            pass
+    new_items = _drafts.filter_covered(
+        new_items, _drafts.covered_windows(target, ts_rows))
     _drafts.save(target, posted + new_items)
     return {"drafts": new_items, "preserved_posted": len(posted)}
 
@@ -501,6 +594,39 @@ def drafts_ignore(body: DraftAction, day: str = None):
     _drafts.add_ignored(target, ignored)
     _drafts.save(target, items)
     return {"ok": True, "count": len(items)}
+
+
+class DraftBulk(BaseModel):
+    indexes: list[int]
+    action: str          # "approve" | "reject" | "delete" | "ignore"
+
+
+@app.post("/api/drafts/bulk")
+def drafts_bulk(body: DraftBulk, day: str = None):
+    """Apply one action to many drafts at once. Indexes are positions in
+    the day's draft list. Posted entries are skipped, never modified.
+    Removals (delete/ignore) are processed in descending index order so
+    earlier removals don't shift later indexes."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    if body.action not in ("approve", "reject", "delete", "ignore"):
+        raise HTTPException(400, "action must be approve, reject, delete or ignore")
+    items = _drafts.load(target)
+    idxs = sorted({i for i in body.indexes if 0 <= i < len(items)}, reverse=True)
+    done = skipped = 0
+    for i in idxs:
+        if items[i].get("status") == "posted":
+            skipped += 1
+            continue
+        if body.action in ("approve", "reject"):
+            items[i]["status"] = "approved" if body.action == "approve" else "rejected"
+        elif body.action == "delete":
+            items.pop(i)
+        else:  # ignore
+            _drafts.add_ignored(target, items.pop(i))
+        done += 1
+    _drafts.save(target, items)
+    return {"ok": True, "done": done, "skipped_posted": skipped,
+            "count": len(items)}
 
 
 @app.get("/api/drafts/ignored")

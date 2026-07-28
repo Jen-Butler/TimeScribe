@@ -114,6 +114,64 @@ def filter_ignored(d: date_cls, items: List[dict]) -> List[dict]:
     return [it for it in items if not is_ignored(it, ig)]
 
 
+def _hm_to_min(hm: str):
+    try:
+        h, m = map(int, str(hm).split(":")[:2])
+        return h * 60 + m
+    except (ValueError, AttributeError):
+        return None
+
+
+def covered_windows(d: date_cls, timesheet_rows: Optional[List[dict]] = None) -> List[tuple]:
+    """Merged [start_min, end_min) windows already accounted for on this
+    day: locally POSTED drafts plus (optionally) the agent's actual Halo
+    timesheet rows -- so time entered directly in Halo counts too."""
+    wins = []
+    for x in load(d):
+        if x.get("status") == "posted":
+            s, e = _hm_to_min(x.get("start_time")), _hm_to_min(x.get("end_time"))
+            if s is not None and e is not None and e > s:
+                wins.append((s, e))
+    for r in timesheet_rows or []:
+        s, e = _hm_to_min(r.get("start")), _hm_to_min(r.get("end"))
+        if s is not None and e is not None and e > s:
+            wins.append((s, e))
+    # merge overlapping/adjacent windows
+    wins.sort()
+    merged: List[tuple] = []
+    for s, e in wins:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    return merged
+
+
+def filter_covered(items: List[dict], windows: List[tuple],
+                   min_frac: float = 0.5) -> List[dict]:
+    """Drop suggested drafts whose time range is mostly (>= min_frac)
+    inside windows that are already logged. Stops every digest re-run
+    from re-suggesting time the technician has already entered (possibly
+    with edited notes/times, so text matching can't catch it)."""
+    if not windows:
+        return items
+    out, dropped = [], 0
+    for it in items:
+        s, e = _hm_to_min(it.get("start_time")), _hm_to_min(it.get("end_time"))
+        if s is None or e is None or e <= s:
+            out.append(it)
+            continue
+        overlap = sum(_overlap_min(s, e, ws, we) for ws, we in windows)
+        if overlap >= (e - s) * min_frac:
+            dropped += 1
+            continue
+        out.append(it)
+    if dropped:
+        print(f"[drafts] dropped {dropped} suggestion(s) already covered by "
+              f"posted/timesheet entries")
+    return out
+
+
 def _minutes(start_hm: str, end_hm: str) -> int:
     try:
         sh, sm = map(int, start_hm.split(":"))

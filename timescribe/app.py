@@ -31,28 +31,117 @@ def _dashboard_url() -> str:
 _dash_proc = None
 
 
+def _edge_path() -> str:
+    return (shutil.which("msedge")
+            or r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+
+
+def _dash_profile_dir() -> str:
+    import os
+    return os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+                        "timescribe", "dashboard-window")
+
+
 def open_dashboard(icon=None, item=None):
-    """Open the dashboard in a dedicated Edge app-window. Reuses the
-    existing window if one is already open (no more stacking a new window
-    on every click). A dedicated user-data-dir keeps it a standalone app
-    window with our own icon rather than an Edge browser tab."""
+    """Open the dashboard. On the VERY FIRST launch we open a normal Edge
+    window (address bar visible) so the user can install TimeScribe as a
+    PWA -- the install (+) icon only shows with browser chrome. After that
+    first run we switch to a chromeless --app window (feels native, own
+    icon). A dedicated user-data-dir keeps it a standalone app window.
+    Reuses an already-open window."""
     global _dash_proc
     if _dash_proc is not None and _dash_proc.poll() is None:
         return  # our dashboard window is already open
-    import os
     url = _dashboard_url()
-    edge = (shutil.which("msedge")
-            or r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
-    profile = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-                           "timescribe", "dashboard-window")
+    cfg = appconfig.load()
+    first_run = not cfg.get("dashboard_shown_once", False)
+    common = [f"--user-data-dir={_dash_profile_dir()}",
+              "--no-first-run", "--no-default-browser-check"]
     try:
-        _dash_proc = subprocess.Popen([
-            edge, f"--app={url}", f"--user-data-dir={profile}",
-            "--no-first-run", "--no-default-browser-check",
-            "--window-size=980,800",
-        ])
+        if first_run:
+            # chromed window so Edge's Install-as-app entry point is visible
+            _dash_proc = subprocess.Popen(
+                [_edge_path(), url, *common, "--window-size=1024,860"])
+            cfg["dashboard_shown_once"] = True
+            appconfig.save(cfg)
+        else:
+            _dash_proc = subprocess.Popen(
+                [_edge_path(), f"--app={url}", *common, "--window-size=980,800"])
     except (OSError, FileNotFoundError):
         webbrowser.open(url)
+
+
+def open_install_window() -> bool:
+    """Open the dashboard in a NORMAL Edge window (address bar + ⋯ visible)
+    so the user can install it as a PWA. With the service worker + manifest
+    now served, Edge shows an install (+) icon in the address bar and an
+    Apps > 'Install TimeScribe' entry. Installing registers TimeScribe as
+    its own Windows app (own icon, own window) that reopens correctly.
+    Uses the same dedicated profile as the app window. Returns True if an
+    Edge window was launched."""
+    url = _dashboard_url()
+    try:
+        subprocess.Popen([
+            _edge_path(), url,                       # plain URL -> chromed window
+            f"--user-data-dir={_dash_profile_dir()}",
+            "--no-first-run", "--no-default-browser-check",
+            "--window-size=1024,860",
+        ])
+        return True
+    except (OSError, FileNotFoundError):
+        webbrowser.open(url)
+        return False
+
+
+def _launcher_target():
+    """(target, arguments, icon) for a shortcut that starts TimeScribe.
+
+    Frozen: TimeScribe.exe launches the tray+dashboard directly and carries
+    its own icon. A second launch just tells the running instance to show
+    the dashboard (see main()), so the shortcut always reopens correctly.
+    Dev: fall back to pythonw -m timescribe with the repo icon."""
+    import sys, os
+    if getattr(sys, "frozen", False):
+        exe = sys.executable                     # ...\TimeScribe.exe
+        return exe, "", exe                      # exe embeds the icon
+    # dev checkout
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    if not os.path.exists(pyw):
+        pyw = sys.executable
+    ico = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "pad.ico")
+    return pyw, "-m timescribe", (ico if os.path.exists(ico) else pyw)
+
+
+def create_desktop_shortcut() -> str:
+    """Create a Desktop shortcut that launches TimeScribe with its own icon.
+
+    Pinning the dashboard window pins Edge (it's a chromeless --app window);
+    the thing to pin is TimeScribe itself. This drops a real .lnk on the
+    Desktop pointing at the launcher, resolving the Desktop via Windows so
+    OneDrive-redirected desktops work. Returns the shortcut path."""
+    import subprocess as _sp
+    target, args, icon = _launcher_target()
+    workdir = __import__("os").path.dirname(target)
+    # Build the shortcut through WScript.Shell so no extra deps are needed.
+    ps = (
+        "$ws = New-Object -ComObject WScript.Shell; "
+        "$desk = [Environment]::GetFolderPath('Desktop'); "
+        "$lnk = Join-Path $desk 'TimeScribe.lnk'; "
+        "$s = $ws.CreateShortcut($lnk); "
+        f"$s.TargetPath = '{target}'; "
+        f"$s.Arguments = '{args}'; "
+        f"$s.WorkingDirectory = '{workdir}'; "
+        f"$s.IconLocation = '{icon},0'; "
+        "$s.Description = 'TimeScribe'; "
+        "$s.Save(); "
+        "Write-Output $lnk"
+    )
+    out = _sp.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                  capture_output=True, text=True, timeout=30)
+    if out.returncode != 0:
+        raise RuntimeError((out.stderr or out.stdout or "shortcut creation failed").strip())
+    return (out.stdout or "").strip() or "Desktop\\TimeScribe.lnk"
 
 
 def _run_server():

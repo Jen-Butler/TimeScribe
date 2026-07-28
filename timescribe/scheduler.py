@@ -156,6 +156,21 @@ def _loop(notify: Optional[Callable[[str, str], None]]):
                     r = aw_manager.ensure_running(wait_seconds=20)
                     print(f"[scheduler] AW watchdog: {r}")
 
+            # Halo token keep-alive: refresh in the background (every ~5 min)
+            # so the access token is always warm before a foreground digest
+            # or UI call needs it. Refresh is serialized + rotation-safe in
+            # the adapter, so this never fights the on-demand refresh.
+            last_tok = _state.get("last_token_check")
+            if last_tok is None or (now - last_tok).total_seconds() >= 300:
+                _state["last_token_check"] = now
+                try:
+                    from timescribe.server import get_adapter
+                    a = get_adapter()
+                    if a is not None and a.is_authenticated():
+                        a._ensure_access_token()   # no-op if still fresh
+                except Exception as exc:
+                    print(f"[scheduler] Halo token keep-alive skipped: {exc}")
+
             # EOD trigger: once per weekday after eod time
             if (_active_weekday(now, cfg) and now.time() >= eod
                     and _state["last_eod"] != date_cls.today()

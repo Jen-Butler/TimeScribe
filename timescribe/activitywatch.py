@@ -39,8 +39,14 @@ def _find_bucket(kind: str) -> Optional[str]:
     return None
 
 
-def get_window_events(since: datetime, until: Optional[datetime] = None) -> List[dict]:
-    """Return [{time, duration_s, app, title}] window-focus events."""
+def get_window_events(since: datetime, until: Optional[datetime] = None,
+                      min_duration_s: float = 1.0) -> List[dict]:
+    """Return [{time, duration_s, app, title}] window-focus events.
+
+    Events shorter than min_duration_s are dropped at the source: a window
+    opened by mistake and closed immediately, or focus passing through an
+    app during alt-tab, is not real activity and should never reach the
+    digest, timeline, or MCP consumers."""
     bucket = _find_bucket("currentwindow")
     if not bucket:
         return []
@@ -57,13 +63,16 @@ def get_window_events(since: datetime, until: Optional[datetime] = None) -> List
     out = []
     for e in events:
         data = e.get("data") or {}
+        dur = float(e.get("duration") or 0)
+        if dur < min_duration_s:
+            continue        # sub-second focus blip -> not real activity
         try:
             t = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).astimezone()
         except (KeyError, ValueError):
             continue
         out.append({
             "time": t.replace(tzinfo=None),
-            "duration_s": float(e.get("duration") or 0),
+            "duration_s": dur,
             "app": data.get("app") or "",
             "title": data.get("title") or "",
         })
