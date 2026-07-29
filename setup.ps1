@@ -26,6 +26,7 @@ param(
     [switch]$BuildExe,
     [switch]$SkipAW,
     [switch]$NoStartup,
+    [switch]$NoAppInstall,
     [switch]$Uninstall
 )
 
@@ -61,6 +62,9 @@ if ($Uninstall) {
     Write-Step "Removing shortcuts"
     Remove-Item "$StartMenu\TimeScribe.lnk" -ErrorAction SilentlyContinue
     Remove-Item "$Startup\TimeScribe.lnk" -ErrorAction SilentlyContinue
+    # Remove the Edge app-install policy we may have added.
+    Remove-ItemProperty -Path "HKCU:\SOFTWARE\Policies\Microsoft\Edge\WebAppInstallForceList" `
+        -Name "1" -ErrorAction SilentlyContinue
 
     Write-Step "Stopping TimeScribe"
     Get-CimInstance Win32_Process |
@@ -137,6 +141,21 @@ Write-Host "Start Menu shortcut created."
 if (-not $NoStartup) {
     New-Shortcut "$Startup\TimeScribe.lnk" $pyw "-m timescribe app" $Here $icon
     Write-Host "Run-at-login shortcut created (skip with -NoStartup)."
+}
+
+# Ask Edge to install TimeScribe as an app (own icon, Start Menu entry,
+# taskbar-pinnable). HKCU policy = no admin. Edge installs it on next launch
+# once the dashboard (with its web manifest) is reachable. Skip with -NoAppInstall.
+if (-not $NoAppInstall) {
+    try {
+        $pol = "HKCU:\SOFTWARE\Policies\Microsoft\Edge\WebAppInstallForceList"
+        New-Item -Path $pol -Force | Out-Null
+        $json = '{"url":"http://127.0.0.1:8770/","default_launch_container":"window","create_desktop_shortcut":false}'
+        New-ItemProperty -Path $pol -Name "1" -Value $json -PropertyType String -Force | Out-Null
+        Write-Host "Edge set to install TimeScribe as an app on next launch."
+    } catch {
+        Write-Host "Could not set the Edge app-install policy (optional): $_"
+    }
 }
 
 Write-Step "Launching TimeScribe"
