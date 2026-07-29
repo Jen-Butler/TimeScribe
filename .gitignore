@@ -17,3 +17,5 @@ aw_dist/
 # Local debris
 *.log
 mcp_err.txt
+# Stray executables in the repo root (build outputs live in ignored dirs)
+/*.exe
