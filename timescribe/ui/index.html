@@ -1334,7 +1334,12 @@ async function loadSchedule() {
     $('combinedDrafts').checked = c.combined_digest_drafts !== false;
     if (c.draft_sort_default) {
       $('draftSortDefault').value = c.draft_sort_default;
-      if ($('draftSort')) $('draftSort').value = c.draft_sort_default;
+      // Apply the saved default to the live sort control and re-render the
+      // drafts (the list may have rendered before this async load finished).
+      if ($('draftSort') && $('draftSort').value !== c.draft_sort_default) {
+        $('draftSort').value = c.draft_sort_default;
+        if (typeof loadDrafts === 'function') loadDrafts();
+      }
     }
     if (Array.isArray(c.digest_weekdays)) schedDays = c.digest_weekdays.map(Number);
     renderWeekdays();
