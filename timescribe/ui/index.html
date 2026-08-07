@@ -178,6 +178,20 @@
       <span class="pill" id="pillKey">Anthropic key: checking…</span>
       <span class="pill" id="pillAW">ActivityWatch: checking…</span>
       <span class="pill" id="pillSched"></span>
+      <span id="pomoBar" style="margin-left:auto;display:flex;align-items:center;gap:6px" title="Pomodoro">
+        <select id="pomoMode" style="padding:3px 6px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+          <option value="focus">Focus</option>
+          <option value="break">Break</option>
+          <option value="long">Long</option>
+        </select>
+        <input id="pomoMin" type="number" min="1" max="180" value="25" title="Minutes for this mode"
+               style="width:48px;padding:3px 4px;font-size:12px">
+        <strong id="pomoTime" style="font-size:16px;min-width:52px;text-align:center">25:00</strong>
+        <button id="pomoStart" style="margin:0;padding:3px 10px;font-size:12px;background:var(--good)">▶</button>
+        <button id="pomoReset" title="Reset" style="margin:0;padding:3px 8px;font-size:12px;background:var(--border)">⟲</button>
+        <button id="pomoSkip" title="Skip to next mode" style="margin:0;padding:3px 8px;font-size:12px;background:var(--border)">⏭</button>
+        <span id="pomoCount" style="font-size:11px;color:var(--muted)">0</span>
+      </span>
     </div>
   </div>
 
@@ -339,26 +353,6 @@
   </div><!-- /settings pane (setup) -->
 
   <div class="pane active" data-pane="today">
-
-  <div class="card" id="pomoCard">
-    <h2>Pomodoro
-      <span id="pomoPhase" style="color:var(--muted);font-weight:600;letter-spacing:normal;text-transform:none">Focus</span>
-    </h2>
-    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-      <span id="pomoTime" style="font-family:var(--font-heading,inherit);font-size:34px;font-weight:600;min-width:120px">25:00</span>
-      <button id="pomoStart" style="margin:0;padding:5px 16px;font-size:13px;background:var(--good)">Start</button>
-      <button id="pomoReset" style="margin:0;padding:5px 14px;font-size:13px;background:var(--border)">Reset</button>
-      <button id="pomoSkip" style="margin:0;padding:5px 14px;font-size:13px;background:var(--border)">Skip</button>
-      <span style="flex:1"></span>
-      <label style="margin:0;font-size:12px;color:var(--muted)">Focus
-        <input id="pomoFocus" type="number" min="1" max="180" value="25" style="width:56px;padding:3px 6px;font-size:12px;margin-left:4px"></label>
-      <label style="margin:0;font-size:12px;color:var(--muted)">Break
-        <input id="pomoBreak" type="number" min="1" max="60" value="5" style="width:56px;padding:3px 6px;font-size:12px;margin-left:4px"></label>
-      <label style="margin:0;font-size:12px;color:var(--muted)">Long
-        <input id="pomoLong" type="number" min="1" max="90" value="15" style="width:56px;padding:3px 6px;font-size:12px;margin-left:4px"></label>
-      <span id="pomoCount" style="font-size:12px;color:var(--muted)">0 done</span>
-    </div>
-  </div>
 
   <div class="card">
     <h2>Activity
@@ -1757,20 +1751,16 @@ async function openTicketDetail(i) {
   }
 }
 
-// ---- Pomodoro timer ----
-const pomo = { phase: 'focus', remaining: 25 * 60, running: false, tick: null, done: 0 };
-function pomoMins(kind) {
-  const map = { focus: 'pomoFocus', break: 'pomoBreak', long: 'pomoLong' };
-  const v = parseInt(($(map[kind]) || {}).value, 10);
-  return (isNaN(v) || v < 1) ? { focus: 25, break: 5, long: 15 }[kind] : v;
-}
+// ---- Pomodoro timer (compact, in the status bar) ----
+let pomoDur = { focus: 25, break: 5, long: 15 };
+try { const s = JSON.parse(localStorage.getItem('pomoDur') || 'null'); if (s) pomoDur = s; } catch (e) {}
+const pomo = { phase: 'focus', remaining: pomoDur.focus * 60, running: false, tick: null, done: 0 };
 function pomoRender() {
   const m = Math.floor(pomo.remaining / 60), s = pomo.remaining % 60;
   $('pomoTime').textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-  $('pomoPhase').textContent = pomo.phase === 'focus' ? 'Focus'
-    : (pomo.phase === 'long' ? 'Long break' : 'Break');
-  $('pomoStart').textContent = pomo.running ? 'Pause' : 'Start';
-  $('pomoCount').textContent = pomo.done + ' done';
+  $('pomoMode').value = pomo.phase;
+  $('pomoStart').textContent = pomo.running ? '⏸' : '▶';
+  $('pomoCount').textContent = pomo.done + '✓';
   document.title = pomo.running
     ? '(' + $('pomoTime').textContent + ') TimeScribe'
     : 'TimeScribe';
@@ -1794,7 +1784,8 @@ function pomoNotify(msg) {
 }
 function pomoLoad(kind) {
   pomo.phase = kind;
-  pomo.remaining = pomoMins(kind) * 60;
+  pomo.remaining = (pomoDur[kind] || 25) * 60;
+  $('pomoMin').value = pomoDur[kind] || 25;
   pomoRender();
 }
 function pomoNext() {
@@ -1827,9 +1818,18 @@ $('pomoStart').onclick = () => {
 };
 $('pomoReset').onclick = () => { pomoStop(); pomoLoad(pomo.phase); };
 $('pomoSkip').onclick = () => { pomoStop(); pomoNext(); };
-for (const id of ['pomoFocus', 'pomoBreak', 'pomoLong'])
-  $(id).onchange = () => { if (!pomo.running) pomoLoad(pomo.phase); };
-pomoRender();
+// Mode dropdown: switch the timer to that mode and load its minutes.
+$('pomoMode').onchange = () => { pomoStop(); pomoLoad($('pomoMode').value); };
+// Minutes input: set the selected mode's duration (persisted) and reload.
+$('pomoMin').onchange = () => {
+  const v = parseInt($('pomoMin').value, 10);
+  if (!isNaN(v) && v >= 1) {
+    pomoDur[pomo.phase] = v;
+    try { localStorage.setItem('pomoDur', JSON.stringify(pomoDur)); } catch (e) {}
+    if (!pomo.running) pomoLoad(pomo.phase);
+  }
+};
+pomoLoad('focus');
 
 function showTab(name) {
   document.querySelectorAll('nav button').forEach(b =>
