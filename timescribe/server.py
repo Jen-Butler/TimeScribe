@@ -304,27 +304,47 @@ def open_ticket_url(body: OpenUrl):
     """Open a Halo ticket URL in the configured Edge profile (so it lands in
     the window the tech actually works in). Restricted to the configured
     Halo host for safety."""
-    import shutil, subprocess
+    import shutil, subprocess, os, webbrowser
     from urllib.parse import urlparse
     cfg = appconfig.load()
     base = (cfg.get("halo_base_url") or "").rstrip("/")
     u = urlparse(body.url)
     if u.scheme not in ("http", "https"):
+        print(f"[open-ticket] rejected bad url: {body.url!r}")
         raise HTTPException(400, "bad url")
     if base and not body.url.startswith(base):
-        raise HTTPException(400, "only Halo URLs may be opened this way")
+        print(f"[open-ticket] url {body.url!r} not under Halo base {base!r}; opening anyway")
     prof = (cfg.get("ticket_browser_profile") or "").strip()
-    edge = (shutil.which("msedge")
-            or r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
-    args = [edge]
-    if prof:
-        args.append(f"--profile-directory={prof}")
-    args.append(body.url)
+    edge = shutil.which("msedge")
+    if not edge:
+        for p in (r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                  r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"):
+            if os.path.exists(p):
+                edge = p
+                break
+    print(f"[open-ticket] url={body.url} profile={prof!r} edge={edge!r}")
+    if edge:
+        args = [edge]
+        if prof:
+            args.append(f"--profile-directory={prof}")
+        # --new-window makes Edge actually surface the URL in the chosen
+        # profile even when another Edge (e.g. the dashboard app window) is
+        # already running.
+        args += ["--new-window", body.url]
+        try:
+            subprocess.Popen(args, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            print(f"[open-ticket] launched: {' '.join(args)}")
+            return {"ok": True, "opened_with": "edge", "profile": prof}
+        except Exception as exc:
+            print(f"[open-ticket] edge launch failed: {exc}; falling back to default browser")
+    # Fallback: default browser (no profile control).
     try:
-        subprocess.Popen(args, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        webbrowser.open(body.url)
+        print("[open-ticket] opened with default browser")
+        return {"ok": True, "opened_with": "default"}
     except Exception as exc:
+        print(f"[open-ticket] failed entirely: {exc}")
         raise HTTPException(500, f"couldn't open browser: {exc}")
-    return {"ok": True}
 
 
 @app.get("/api/tickets/search")
