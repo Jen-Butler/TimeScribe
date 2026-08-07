@@ -462,6 +462,18 @@
   </div>
   </div><!-- /settings pane (mcp) -->
 
+<div id="activityDetailOverlay" style="display:none;position:fixed;inset:0;z-index:200;
+     background:rgba(0,0,0,.35);align-items:flex-start;justify-content:center">
+  <div style="margin-top:8vh;width:min(720px,94vw);max-height:80vh;overflow:auto;background:var(--surface,#e9e9ea);
+       border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <strong id="adTitle" style="font-size:14px;flex:1">Activity</strong>
+      <button type="button" id="adClose" style="margin:0;padding:3px 10px;font-size:12px">✕</button>
+    </div>
+    <div id="adBody" style="font-size:13px"></div>
+  </div>
+</div>
+
 <div id="ticketDetailOverlay" style="display:none;position:fixed;inset:0;z-index:200;
      background:rgba(0,0,0,.35);align-items:flex-start;justify-content:center">
   <div style="margin-top:6vh;width:min(680px,94vw);max-height:84vh;overflow:auto;background:var(--surface,#e9e9ea);
@@ -705,6 +717,8 @@ function draftRow(d, i, nbr) {
       <span style="color:var(--muted)">–</span>
       <input type="time" value="${d.end_time}" id="de${i}" ${editable?'':'disabled'}
              style="width:auto;padding:3px 6px;font-size:12px">
+      <button type="button" onclick="openActivityDetail(${i})"
+              title="See the captured activity for this time window" style="margin:0;padding:3px 8px;font-size:12px">📊</button>
       <label style="margin:0;font-size:11px">ticket #</label>
       <input value="${ticketVal}" id="dt${i}" placeholder="blank = quick time"
              list="ticketOptions" ${editable?'':'disabled'}
@@ -1764,6 +1778,67 @@ async function openTicketDetail(i) {
     $('tdBody').innerHTML = html;
   } catch (e) {
     $('tdBody').innerHTML = '<span class="err-text">Couldn\'t load ticket: ' + e.message + '</span>';
+  }
+}
+
+// ---- per-entry activity peek (scoped to the entry's time window) ----
+function closeActivityDetail() { $('activityDetailOverlay').style.display = 'none'; }
+$('adClose').onclick = closeActivityDetail;
+$('activityDetailOverlay').onclick = (e) => { if (e.target === $('activityDetailOverlay')) closeActivityDetail(); };
+function _hm2min(hm) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(hm || ''); return m ? (+m[1]) * 60 + (+m[2]) : null;
+}
+async function openActivityDetail(i) {
+  const s = _hm2min($('ds' + i) && $('ds' + i).value);
+  const e = _hm2min($('de' + i) && $('de' + i).value);
+  if (s == null || e == null || e <= s) { setMsg2('This entry needs valid start/end times.', false); return; }
+  $('adTitle').textContent = 'Activity ' + $('ds' + i).value + '–' + $('de' + i).value;
+  $('adBody').innerHTML = '<span style="color:var(--muted)">Loading activity…</span>';
+  $('activityDetailOverlay').style.display = 'flex';
+  try {
+    const r = await api('/api/timeline?day=' + selDay());
+    const esc = x => (x || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const ov = (a, b) => Math.max(0, Math.min(e, b) - Math.max(s, a));
+    // Window timeline bar
+    const W = 640, span = e - s, PPU = W / span;
+    let svg = `<svg width="${W}" height="70" style="font-family:inherit;display:block;margin-bottom:8px">`;
+    // AFK shading
+    for (const a of (r.afk || [])) if (ov(a.start, a.end) > 0) {
+      const x0 = Math.max(0, (a.start - s)) * PPU, w = ov(a.start, a.end) * PPU;
+      svg += `<rect x="${x0}" y="0" width="${w}" height="62" fill="#64748b" opacity="0.18"/>`;
+    }
+    // app focus blocks (top lane)
+    for (const w of (r.windows || [])) if (ov(w.start, w.end) > 0) {
+      const x0 = Math.max(0, (w.start - s)) * PPU, ww = Math.max(1.5, ov(w.start, w.end) * PPU);
+      svg += `<rect x="${x0}" y="6" width="${ww}" height="26" rx="2" fill="${tlColor(w.app)}" opacity="0.85"><title>${esc(w.app)} — ${esc(w.title)}</title></rect>`;
+    }
+    // browser visit ticks (bottom lane)
+    for (const v of (r.visits || [])) if (v.t >= s && v.t <= e) {
+      const x0 = (v.t - s) * PPU;
+      svg += `<rect x="${x0}" y="36" width="2.5" height="22" fill="${tlColor(v.profile)}"><title>[${esc(v.profile)}] ${esc(v.domain)} — ${esc(v.title)}</title></rect>`;
+    }
+    svg += `<text x="0" y="70" font-size="10" fill="#64748b">${$('ds'+i).value}</text>`;
+    svg += `<text x="${W}" y="70" font-size="10" fill="#64748b" text-anchor="end">${$('de'+i).value}</text></svg>`;
+
+    // Text breakdown
+    const apps = (r.windows || []).filter(w => ov(w.start, w.end) > 0)
+      .map(w => ({ ...w, mins: Math.round(ov(w.start, w.end)) }))
+      .sort((a, b) => b.mins - a.mins);
+    const vis = (r.visits || []).filter(v => v.t >= s && v.t <= e);
+    let html = svg;
+    html += `<div style="font-weight:600;margin:6px 0 2px">App focus</div>`;
+    html += apps.length ? apps.map(w =>
+      `<div style="display:flex;gap:8px;font-size:12px;padding:1px 0"><span style="color:var(--accent);min-width:44px">${w.mins}m</span>`
+      + `<span style="min-width:120px">${esc(w.app)}</span><span style="color:var(--muted);flex:1">${esc(w.title)}</span></div>`).join('')
+      : '<div style="color:var(--muted)">No app-focus events in this window.</div>';
+    html += `<div style="font-weight:600;margin:10px 0 2px">Browser (${vis.length})</div>`;
+    html += vis.length ? vis.map(v =>
+      `<div style="display:flex;gap:8px;font-size:12px;padding:1px 0"><span style="color:var(--muted);min-width:44px">${v.clock}</span>`
+      + `<span style="min-width:120px">[${esc(v.profile)}]</span><span style="flex:1">${esc(v.domain)} — ${esc(v.title)}</span></div>`).join('')
+      : '<div style="color:var(--muted)">No browser visits in this window.</div>';
+    $('adBody').innerHTML = html;
+  } catch (err) {
+    $('adBody').innerHTML = '<span class="err-text">Couldn\'t load activity: ' + err.message + '</span>';
   }
 }
 
