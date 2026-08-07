@@ -294,6 +294,20 @@ def browsers_list():
     return {"browsers": list(grouped.values())}
 
 
+@app.get("/api/tickets/search")
+def tickets_search(q: str, limit: int = 20):
+    """Free-text ticket search for relinking a draft to the right ticket."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    if not (q or "").strip():
+        return {"tickets": []}
+    try:
+        return {"tickets": a.search_tickets(q.strip(), limit)}
+    except Exception as exc:
+        raise HTTPException(502, str(exc))
+
+
 @app.get("/api/ticket")
 def ticket_detail(id: int):
     """One ticket's detail, for the timesheet click-through panel."""

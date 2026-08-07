@@ -427,6 +427,20 @@
   </div>
   </div><!-- /settings pane (mcp) -->
 
+<div id="ticketSearchOverlay" style="display:none;position:fixed;inset:0;z-index:200;
+     background:rgba(0,0,0,.35);align-items:flex-start;justify-content:center">
+  <div style="margin-top:8vh;width:min(560px,92vw);background:var(--surface,#e9e9ea);
+       border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <strong style="font-size:14px;flex:1">Find a ticket to link</strong>
+      <button type="button" id="tsClose" style="margin:0;padding:3px 10px;font-size:12px">✕</button>
+    </div>
+    <input id="tsInput" placeholder="Search by client, subject, or ticket #…" autocomplete="off"
+           style="width:100%;padding:8px 10px;font-size:14px">
+    <div id="tsResults" style="margin-top:10px;max-height:50vh;overflow:auto;font-size:13px"></div>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
 const api = (path, opts) => fetch(path, opts).then(async r => {
@@ -646,7 +660,9 @@ function draftRow(d, i, nbr) {
       <label style="margin:0;font-size:11px">ticket #</label>
       <input value="${ticketVal}" id="dt${i}" placeholder="blank = quick time"
              list="ticketOptions" ${editable?'':'disabled'}
-             style="width:150px;padding:3px 6px;font-size:12px">
+             style="width:110px;padding:3px 6px;font-size:12px">
+      <button type="button" onclick="openTicketSearch(${i})" ${editable?'':'disabled'}
+              title="Search for a ticket to link" style="margin:0;padding:3px 8px;font-size:12px">🔍 Find</button>
       <span style="color:${statusColor}">${d.status}</span>
       <span style="color:var(--muted);font-size:11px">${conf ? conf + '% confident' : ''}</span>
     </div>
@@ -1570,6 +1586,50 @@ async function loadTimeline() {
     };
     el.onmouseleave = () => { tip.style.display = 'none'; };
   });
+}
+
+// ---- ticket search popover (relink a draft to the right ticket) ----
+let _tsTargetIndex = null, _tsTimer = null;
+function openTicketSearch(i) {
+  _tsTargetIndex = i;
+  $('tsInput').value = '';
+  $('tsResults').innerHTML = '<span style="color:var(--muted)">Type to search your Halo tickets…</span>';
+  $('ticketSearchOverlay').style.display = 'flex';
+  setTimeout(() => $('tsInput').focus(), 30);
+}
+function closeTicketSearch() { $('ticketSearchOverlay').style.display = 'none'; _tsTargetIndex = null; }
+$('tsClose').onclick = closeTicketSearch;
+$('ticketSearchOverlay').onclick = (e) => { if (e.target === $('ticketSearchOverlay')) closeTicketSearch(); };
+$('tsInput').oninput = () => {
+  clearTimeout(_tsTimer);
+  const q = $('tsInput').value.trim();
+  if (!q) { $('tsResults').innerHTML = ''; return; }
+  _tsTimer = setTimeout(async () => {
+    $('tsResults').innerHTML = '<span style="color:var(--muted)">Searching…</span>';
+    try {
+      const r = await api('/api/tickets/search?q=' + encodeURIComponent(q));
+      if (!r.tickets.length) { $('tsResults').innerHTML = '<span style="color:var(--muted)">No matches.</span>'; return; }
+      $('tsResults').innerHTML = '';
+      for (const t of r.tickets) {
+        const row = document.createElement('div');
+        row.style.cssText = 'padding:8px;border-bottom:1px solid var(--border);cursor:pointer';
+        row.innerHTML = `<strong>#${t.id}</strong> <span style="color:var(--muted)">${t.status}</span><br>`
+          + `<span>${(t.client||'').replace(/</g,'&lt;')}</span> — ${(t.subject||'').replace(/</g,'&lt;')}`;
+        row.onmouseenter = () => row.style.background = 'var(--input-bg)';
+        row.onmouseleave = () => row.style.background = '';
+        row.onclick = () => pickTicket(t.id);
+        $('tsResults').appendChild(row);
+      }
+    } catch (e) { $('tsResults').innerHTML = '<span class="err-text">Search failed: ' + e.message + '</span>'; }
+  }, 250);
+};
+function pickTicket(id) {
+  const i = _tsTargetIndex;
+  closeTicketSearch();
+  if (i == null) return;
+  const f = $('dt' + i);
+  if (f) f.value = id;
+  saveDraft(i);   // persist the new ticket + refresh the row's client/subject
 }
 
 function showTab(name) {

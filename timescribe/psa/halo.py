@@ -432,6 +432,30 @@ class HaloPSAAdapter(PSAAdapter):
         self._api_post("Client", [item])
         print(f"[halo] published org AI key to client {client_id} field '{field_name}'")
 
+    def search_tickets(self, query: str, limit: int = 20) -> list:
+        """Free-text ticket search (id, client, subject, status) so the user
+        can relink a draft to a ticket the AI didn't pick. Searches all
+        tickets, not just the agent's open ones."""
+        params = {"search": query, "count": limit, "pageinate": True,
+                  "page_size": limit, "page_no": 1}
+        try:
+            raw = self._api_get("Tickets", params=params)
+        except Exception as exc:
+            print(f"[halo] ticket search failed: {exc}")
+            return []
+        rows = raw.get("tickets") if isinstance(raw, dict) else raw
+        out = []
+        for r in (rows or [])[:limit]:
+            if not isinstance(r, dict):
+                continue
+            out.append({
+                "id": r.get("id"),
+                "client": r.get("client_name") or "",
+                "subject": (r.get("summary") or r.get("subject") or "")[:120],
+                "status": str(r.get("status_name") or r.get("status") or ""),
+            })
+        return out
+
     def get_ticket(self, ticket_id) -> dict:
         """Fetch one ticket's detail for the timesheet click-through panel."""
         t = self._api_get(f"Tickets/{ticket_id}")
