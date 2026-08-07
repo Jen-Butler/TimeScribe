@@ -345,6 +345,7 @@
     <h2>Draft time entries
       <button id="btnGenDrafts" style="margin:0;padding:4px 12px;font-size:12px">Import from digest</button>
       <button id="btnSuggest" style="margin:0;padding:4px 12px;font-size:12px" title="Optional AI pass: matches entries to tickets (uses your API key)">AI ticket match</button>
+      <button id="btnFillGaps" style="margin:0;padding:4px 12px;font-size:12px" title="Find uncovered windows on the Halo timesheet and suggest factual entries from activity to fill them">Fill timesheet gaps</button>
       <button id="btnAddManual" style="margin:0;padding:4px 12px;font-size:12px;background:#a78bfa" title="Add a blank entry to fill in by hand">Add manual entry</button>
       <button id="btnPostDrafts" style="margin:0;padding:4px 12px;font-size:12px;background:var(--good)">Post approved</button>
     </h2>
@@ -1149,6 +1150,18 @@ $('btnSuggest').onclick = async () => {
   finally { $('btnSuggest').disabled = false; $('btnSuggest').textContent = 'AI ticket match'; }
 };
 
+$('btnFillGaps').onclick = async () => {
+  $('btnFillGaps').disabled = true; $('btnFillGaps').textContent = 'Filling…';
+  try {
+    const r = await api('/api/drafts/fill-gaps?day=' + selDay(), {method:'POST'});
+    if (r.note) setMsg2(r.note, true);
+    else setMsg2('Filled ' + (r.added || 0) + ' gap entr' + ((r.added===1)?'y':'ies')
+                 + ' from activity (' + (r.gaps ? r.gaps.length : 0) + ' gap(s) found).', true);
+    loadDrafts(); loadSummary(); loadTimesheet();
+  } catch (e) { setMsg2('Fill gaps failed: ' + e.message, false); }
+  finally { $('btnFillGaps').disabled = false; $('btnFillGaps').textContent = 'Fill timesheet gaps'; }
+};
+
 // ---- provider-aware setup UI + MCP-only mode ----
 function applyProviderUI() {
   const p = $('llmProvider').value;
@@ -1157,7 +1170,7 @@ function applyProviderUI() {
   $('orgAiRow').style.display       = (p === 'halo_org') ? '' : 'none';
   $('mcpOnlyNote').style.display    = (p === 'mcp') ? '' : 'none';
   const aiDisabled = (p === 'mcp');
-  for (const id of ['btnDigest', 'btnSuggest']) {
+  for (const id of ['btnDigest', 'btnSuggest', 'btnFillGaps']) {
     $(id).disabled = aiDisabled;
     $(id).title = aiDisabled ? 'Disabled in MCP-only mode (no API key)' : '';
   }

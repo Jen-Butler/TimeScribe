@@ -46,11 +46,12 @@ Rules:
 
 
 class Draft(BaseModel):
-    ticket_id: int
+    ticket_id: Optional[int] = None
     start_time: str
     end_time: str
     note: str
     confidence: float = 0.0
+    no_charge: bool = False
     activity_refs: List[str] = Field(default_factory=list)
 
 
@@ -368,3 +369,154 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
         "unmatched": [u.model_dump() for u in resp.unmatched],
         "preserved_posted": len(posted),
     }
+
+
+GAPFILL_SYSTEM_PROMPT = """You are a billing assistant for an MSP technician.
+You are given, for one day:
+- GAPS: time windows on the timesheet with NO logged time yet.
+- ACTIVITY: a raw, timestamped feed of what actually happened (browser
+  visits, app focus, AFK markers).
+- AFK PERIODS: windows the person was away from the keyboard.
+- ALREADY LOGGED: windows already on the timesheet (never overlap these).
+- OPEN TICKETS and MEETINGS for attribution.
+
+Produce draft time entries that FILL THE GAPS, and ONLY the gaps. Rules:
+- BE FACTUAL. Base every entry strictly on the ACTIVITY feed for that
+  window. Never invent work that the activity doesn't show.
+- Every entry's time range must fall INSIDE a listed gap and must not
+  overlap ALREADY LOGGED windows.
+- If a gap (or part of one) is AFK / idle with no meaningful activity, emit
+  an entry for it marked as away time: ticket_id null, no_charge true,
+  note "AFK - away from keyboard (no activity captured)". Do not fabricate
+  billable work for idle time.
+- When activity in a gap clearly relates to a ticket (client/profile or
+  subject match) or a meeting, attribute it and write a professional note.
+  Otherwise ticket_id null (quick time) with a factual note of what the
+  activity shows.
+- Round to 5 minutes, minimum 10-minute entries, entries non-overlapping.
+
+Return STRICT JSON:
+{"drafts":[{"ticket_id":123 or null,"start_time":"HH:MM","end_time":"HH:MM",
+  "note":"...","confidence":0.0-1.0,"no_charge":false}],
+ "unmatched":[]}"""
+
+
+def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
+    """Look at the Halo timesheet, find uncovered windows within work hours,
+    and propose factual draft entries from the day's activity to fill them
+    (AFK gaps become explicit away-time entries). Appends to existing
+    drafts; never replaces or touches posted entries."""
+    from datetime import datetime as _dtm, time as _tm
+    from timescribe import activitywatch as _aw
+    target = target or date_cls.today()
+    since = _dtm.combine(target, _tm.min)
+    until = _dtm.combine(target, _tm.max)
+    cfg = appconfig.load()
+
+    def _m(hm):
+        try:
+            h, mm = map(int, (hm or "").split(":")); return h * 60 + mm
+        except (ValueError, AttributeError):
+            return None
+    def _fmt(x):
+        return f"{x // 60:02d}:{x % 60:02d}"
+
+    ts_rows = []
+    try:
+        ts = adapter.get_day_timesheet(since, until)
+        ts_rows = ts.get("rows", [])
+    except Exception as exc:
+        print(f"[gapfill] timesheet fetch failed: {exc}")
+
+    covered = drafts.covered_windows(target, ts_rows)      # merged occupied windows
+    ws = _m(cfg.get("work_start", "09:00")) or 540
+    we = _m(cfg.get("work_end", "17:00")) or 1020
+    # Gaps = [ws, we] minus covered windows.
+    gaps, cur = [], ws
+    for s, e in covered:
+        s, e = max(s, ws), min(e, we)
+        if s > cur:
+            gaps.append((cur, min(s, we)))
+        cur = max(cur, e)
+    if cur < we:
+        gaps.append((cur, we))
+    gaps = [(s, e) for s, e in gaps if e - s >= 10]
+    if not gaps:
+        return {"drafts": [], "note": "No gaps in the timesheet for this day."}
+
+    feed = digest_mod.build_signal_feed(since, until)
+    afk = _aw.get_inactivity_periods(since, until)
+    afk_lines = [f"{a['start'].strftime('%H:%M')}-{a['end'].strftime('%H:%M')}"
+                 for a in afk]
+    tickets = []
+    try:
+        tickets = adapter.list_open_tickets()
+    except Exception:
+        pass
+    meeting_lines = []
+    try:
+        for mt in adapter.get_day_meetings(since, until):
+            tag = "Teams" if mt.get("is_teams") else "meeting"
+            meeting_lines.append(f"{mt['start']}-{mt['end']} [{tag}] "
+                                 f"{('#'+str(mt['ticket_id'])) if mt.get('ticket_id') else ''} "
+                                 f"{mt.get('client','')}: {mt.get('subject','')}")
+    except Exception:
+        pass
+
+    gap_lines = [f"{_fmt(s)}-{_fmt(e)}" for s, e in gaps]
+    cov_lines = [f"{_fmt(s)}-{_fmt(e)}" for s, e in covered]
+    ticket_lines = [f"[#{t.id}] [{t.client}] {t.subject[:100]}" for t in tickets]
+    user_prompt = (
+        f"Date: {target.isoformat()}\n\n"
+        f"GAPS TO FILL ({len(gap_lines)}):\n" + "\n".join(gap_lines)
+        + f"\n\nACTIVITY:\n---\n{feed}\n---\n"
+        + (f"\nAFK PERIODS:\n" + "\n".join(afk_lines) if afk_lines else "")
+        + (f"\n\nALREADY LOGGED (do not overlap):\n" + "\n".join(cov_lines) if cov_lines else "")
+        + (f"\n\nMEETINGS:\n" + "\n".join(meeting_lines) if meeting_lines else "")
+        + f"\n\nOPEN TICKETS ({len(ticket_lines)}):\n" + "\n".join(ticket_lines)
+        + "\n\nProduce the JSON described in the system prompt."
+    )
+
+    resp = generate(system_prompt=GAPFILL_SYSTEM_PROMPT, user_prompt=user_prompt,
+                    model=_planner_model(cfg), max_tokens=6000,
+                    schema=InferenceResponse)
+
+    tmap = {t.id: t for t in tickets}
+    new_items = []
+    for d in resp.drafts:
+        t = tmap.get(d.ticket_id) if d.ticket_id else None
+        new_items.append({
+            **d.model_dump(),
+            "client": t.client if t else "",
+            "subject": t.subject if t else ("(AFK)" if d.no_charge and not d.ticket_id
+                                            else "(quick time)"),
+            "status": "draft",
+        })
+    # Backstops: only keep entries inside gaps, drop ignored, drop anything
+    # overlapping already-logged windows.
+    def _in_gap(it):
+        s, e = _m(it.get("start_time")), _m(it.get("end_time"))
+        if s is None or e is None or e <= s:
+            return False
+        mid = (s + e) / 2
+        return any(gs <= mid < ge for gs, ge in gaps)
+    new_items = [it for it in new_items if _in_gap(it)]
+    new_items = drafts.filter_ignored(target, new_items)
+    new_items = drafts.filter_covered(new_items, covered)
+
+    # Append to existing (don't clobber current drafts); skip ones that
+    # overlap an existing unposted draft's window.
+    existing = drafts.load(target)
+    def _clashes(it):
+        s, e = _m(it["start_time"]), _m(it["end_time"])
+        for x in existing:
+            xs, xe = _m(x.get("start_time")), _m(x.get("end_time"))
+            if xs is None or xe is None:
+                continue
+            if min(e, xe) - max(s, xs) > 0:
+                return True
+        return False
+    added = [it for it in new_items if not _clashes(it)]
+    drafts.save(target, existing + added)
+    print(f"[gapfill] {len(gaps)} gaps -> proposed {len(resp.drafts)}, added {len(added)}")
+    return {"drafts": added, "gaps": gap_lines, "added": len(added)}

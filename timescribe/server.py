@@ -429,6 +429,21 @@ def drafts_generate(day: str = None):
     return {"drafts": new_items, "preserved_posted": len(posted)}
 
 
+@app.post("/api/drafts/fill-gaps")
+def drafts_fill_gaps(day: str = None):
+    """Read the Halo timesheet, find uncovered work-hour windows, and
+    propose factual draft entries from activity to fill them (AFK gaps
+    become away-time entries). Appends to existing drafts."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    target = _date.fromisoformat(day) if day else _date.today()
+    try:
+        return _inference.fill_timesheet_gaps(a, target)
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 @app.post("/api/drafts/suggest")
 def drafts_suggest(day: str = None):
     """AI pass: raw activity + open tickets -> digest + ticket-matched
