@@ -491,14 +491,49 @@ class HaloPSAAdapter(PSAAdapter):
             "id": t.get("id"),
             "url": f"{self.base_url}/ticket?id={t.get('id')}",
             "summary": t.get("summary") or t.get("subject") or "",
-            "details": (t.get("details") or t.get("details_html") or "")[:600],
+            "details": (t.get("details") or t.get("details_html") or "")[:1500],
             "client": t.get("client_name") or "",
             "site": t.get("site_name") or "",
             "status": t.get("status_name") or str(t.get("status") or ""),
             "priority": t.get("priority_name") or "",
             "agent": t.get("agent_name") or "",
             "category": t.get("category_1") or "",
+            "actions": self.get_ticket_actions(t.get("id")),
         }
+
+    def get_ticket_actions(self, ticket_id, limit: int = 100) -> list:
+        """All actions/notes on a ticket, newest first, for the in-app
+        ticket viewer. Strips HTML from note bodies."""
+        import re as _re
+        if not ticket_id:
+            return []
+        try:
+            raw = self._api_get("Actions", params={"ticket_id": ticket_id,
+                                                    "count": limit})
+        except Exception as exc:
+            print(f"[halo] ticket {ticket_id} actions fetch failed: {exc}")
+            return []
+        rows = raw.get("actions") if isinstance(raw, dict) else raw
+        out = []
+        for r in (rows or []):
+            if not isinstance(r, dict):
+                continue
+            body = (r.get("note") or r.get("note_html") or "")
+            body = _re.sub(r"<[^>]+>", " ", body)
+            body = _re.sub(r"\s+", " ", body).strip()
+            when = (r.get("datetime") or r.get("actiondatecreated") or "")
+            out.append({
+                "id": r.get("id"),
+                "when": str(when).replace("T", " ")[:16],
+                "who": r.get("who") or "",
+                "outcome": r.get("outcome") or "",
+                "timetaken": r.get("timetaken"),
+                "note": body[:2000],
+            })
+        # Newest first if we can sort on the datetime string.
+        out.sort(key=lambda a: a.get("when") or "", reverse=True)
+        print(f"[halo] ticket {ticket_id}: {len(out)} actions")
+        return out
 
     def _ticket_default_chargerate(self, ticket_id):
         """Read the ticket's default charge rate so posted time bills at

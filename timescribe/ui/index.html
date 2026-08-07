@@ -427,6 +427,19 @@
   </div>
   </div><!-- /settings pane (mcp) -->
 
+<div id="ticketDetailOverlay" style="display:none;position:fixed;inset:0;z-index:200;
+     background:rgba(0,0,0,.35);align-items:flex-start;justify-content:center">
+  <div style="margin-top:6vh;width:min(680px,94vw);max-height:84vh;overflow:auto;background:var(--surface,#e9e9ea);
+       border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <strong id="tdTitle" style="font-size:14px;flex:1">Ticket</strong>
+      <a id="tdOpen" href="#" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent);text-decoration:none">Open in Halo ↗</a>
+      <button type="button" id="tdClose2" style="margin:0;padding:3px 10px;font-size:12px">✕</button>
+    </div>
+    <div id="tdBody" style="font-size:13px"></div>
+  </div>
+</div>
+
 <div id="ticketSearchOverlay" style="display:none;position:fixed;inset:0;z-index:200;
      background:rgba(0,0,0,.35);align-items:flex-start;justify-content:center">
   <div style="margin-top:8vh;width:min(560px,92vw);background:var(--surface,#e9e9ea);
@@ -661,6 +674,8 @@ function draftRow(d, i, nbr) {
       <input value="${ticketVal}" id="dt${i}" placeholder="blank = quick time"
              list="ticketOptions" ${editable?'':'disabled'}
              style="width:110px;padding:3px 6px;font-size:12px">
+      <button type="button" onclick="openTicketDetail(${i})"
+              title="View this ticket's info and notes" style="margin:0;padding:3px 8px;font-size:12px">📝</button>
       <button type="button" onclick="openTicketSearch(${i})" ${editable?'':'disabled'}
               title="Search for a ticket to link" style="margin:0;padding:3px 8px;font-size:12px">🔍 Find</button>
       <span style="color:${statusColor}">${d.status}</span>
@@ -1630,6 +1645,43 @@ function pickTicket(id) {
   const f = $('dt' + i);
   if (f) f.value = id;
   saveDraft(i);   // persist the new ticket + refresh the row's client/subject
+}
+
+// ---- ticket detail modal (info + all notes/actions) ----
+function closeTicketDetail() { $('ticketDetailOverlay').style.display = 'none'; }
+$('tdClose2').onclick = closeTicketDetail;
+$('ticketDetailOverlay').onclick = (e) => { if (e.target === $('ticketDetailOverlay')) closeTicketDetail(); };
+async function openTicketDetail(i) {
+  const id = ($('dt' + i) && $('dt' + i).value.trim()) || '';
+  if (!id) { setMsg2('No ticket on this entry to view.', false); return; }
+  $('tdTitle').textContent = 'Ticket #' + id;
+  $('tdOpen').style.display = 'none';
+  $('tdBody').innerHTML = '<span style="color:var(--muted)">Loading ticket…</span>';
+  $('ticketDetailOverlay').style.display = 'flex';
+  try {
+    const t = await api('/api/ticket?id=' + encodeURIComponent(id));
+    const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    $('tdTitle').textContent = '#' + t.id + ' — ' + esc(t.summary);
+    if (t.url) { $('tdOpen').href = t.url; $('tdOpen').style.display = ''; }
+    const row = (k,v) => v ? `<div style="margin:2px 0"><span style="color:var(--muted)">${k}:</span> ${esc(v)}</div>` : '';
+    let html = row('Client', (t.client||'') + (t.site ? ' · ' + t.site : ''))
+      + row('Status', t.status) + row('Priority', t.priority)
+      + row('Agent', t.agent) + row('Category', t.category);
+    if (t.details) html += `<div style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;white-space:pre-wrap">${esc(t.details)}</div>`;
+    const acts = t.actions || [];
+    html += `<div style="margin-top:12px;font-weight:600">Notes / actions (${acts.length})</div>`;
+    if (!acts.length) html += '<div style="color:var(--muted)">No actions on this ticket.</div>';
+    for (const a of acts) {
+      html += `<div style="border-top:1px solid var(--border);padding:8px 0">`
+        + `<div style="color:var(--muted);font-size:11px">${esc(a.when)} · ${esc(a.who)}`
+        + (a.outcome ? ' · ' + esc(a.outcome) : '')
+        + (a.timetaken ? ' · ' + a.timetaken + 'h' : '') + `</div>`
+        + `<div style="white-space:pre-wrap;margin-top:2px">${esc(a.note) || '<span style="color:var(--muted)">(no note text)</span>'}</div></div>`;
+    }
+    $('tdBody').innerHTML = html;
+  } catch (e) {
+    $('tdBody').innerHTML = '<span class="err-text">Couldn\'t load ticket: ' + e.message + '</span>';
+  }
 }
 
 function showTab(name) {
