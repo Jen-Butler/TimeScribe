@@ -328,7 +328,9 @@
 
   <div class="card">
     <h2>Activity
-      <input type="date" id="dayPick" style="width:auto;padding:4px 8px;font-size:12px;margin:0 8px">
+      <button id="dayPrev" title="Previous day" style="margin:0 0 0 8px;padding:4px 10px;font-size:12px">‹</button>
+      <input type="date" id="dayPick" style="width:auto;padding:4px 8px;font-size:12px;margin:0 4px">
+      <button id="dayNext" title="Next day" style="margin:0 8px 0 0;padding:4px 10px;font-size:12px">›</button>
       <input type="time" id="timeFrom" style="width:auto;padding:4px 8px;font-size:12px" title="optional window start">
       <span style="color:var(--muted)">–</span>
       <input type="time" id="timeTo" style="width:auto;padding:4px 8px;font-size:12px" title="optional window end">
@@ -554,7 +556,16 @@ $('btnConnect').onclick = async () => {
 
 refreshStatus();
 $('dayPick').value = new Date().toISOString().slice(0,10);
-$('dayPick').onchange = () => { loadDigest(); loadDrafts(); loadSummary(); loadTimesheet(); loadIgnored(); };
+function reloadDay() { loadDigest(); loadDrafts(); loadSummary(); loadTimesheet(); loadIgnored(); }
+$('dayPick').onchange = reloadDay;
+function shiftDay(delta) {
+  const d = new Date(($('dayPick').value || new Date().toISOString().slice(0,10)) + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  $('dayPick').value = d.toISOString().slice(0,10);
+  reloadDay();
+}
+$('dayPrev').onclick = () => shiftDay(-1);
+$('dayNext').onclick = () => shiftDay(1);
 
 function selDay() {
   return $('dayPick').value || new Date().toISOString().slice(0,10);
