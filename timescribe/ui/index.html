@@ -330,6 +330,26 @@
 
   <div class="pane active" data-pane="today">
 
+  <div class="card" id="pomoCard">
+    <h2>Pomodoro
+      <span id="pomoPhase" style="color:var(--muted);font-weight:600;letter-spacing:normal;text-transform:none">Focus</span>
+    </h2>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <span id="pomoTime" style="font-family:var(--font-heading,inherit);font-size:34px;font-weight:600;min-width:120px">25:00</span>
+      <button id="pomoStart" style="margin:0;padding:5px 16px;font-size:13px;background:var(--good)">Start</button>
+      <button id="pomoReset" style="margin:0;padding:5px 14px;font-size:13px;background:var(--border)">Reset</button>
+      <button id="pomoSkip" style="margin:0;padding:5px 14px;font-size:13px;background:var(--border)">Skip</button>
+      <span style="flex:1"></span>
+      <label style="margin:0;font-size:12px;color:var(--muted)">Focus
+        <input id="pomoFocus" type="number" min="1" max="180" value="25" style="width:56px;padding:3px 6px;font-size:12px;margin-left:4px"></label>
+      <label style="margin:0;font-size:12px;color:var(--muted)">Break
+        <input id="pomoBreak" type="number" min="1" max="60" value="5" style="width:56px;padding:3px 6px;font-size:12px;margin-left:4px"></label>
+      <label style="margin:0;font-size:12px;color:var(--muted)">Long
+        <input id="pomoLong" type="number" min="1" max="90" value="15" style="width:56px;padding:3px 6px;font-size:12px;margin-left:4px"></label>
+      <span id="pomoCount" style="font-size:12px;color:var(--muted)">0 done</span>
+    </div>
+  </div>
+
   <div class="card">
     <h2>Activity
       <button id="dayPrev" title="Previous day" style="margin:0 0 0 8px;padding:4px 10px;font-size:12px">‹</button>
@@ -1720,6 +1740,80 @@ async function openTicketDetail(i) {
     $('tdBody').innerHTML = '<span class="err-text">Couldn\'t load ticket: ' + e.message + '</span>';
   }
 }
+
+// ---- Pomodoro timer ----
+const pomo = { phase: 'focus', remaining: 25 * 60, running: false, tick: null, done: 0 };
+function pomoMins(kind) {
+  const map = { focus: 'pomoFocus', break: 'pomoBreak', long: 'pomoLong' };
+  const v = parseInt(($(map[kind]) || {}).value, 10);
+  return (isNaN(v) || v < 1) ? { focus: 25, break: 5, long: 15 }[kind] : v;
+}
+function pomoRender() {
+  const m = Math.floor(pomo.remaining / 60), s = pomo.remaining % 60;
+  $('pomoTime').textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  $('pomoPhase').textContent = pomo.phase === 'focus' ? 'Focus'
+    : (pomo.phase === 'long' ? 'Long break' : 'Break');
+  $('pomoStart').textContent = pomo.running ? 'Pause' : 'Start';
+  $('pomoCount').textContent = pomo.done + ' done';
+  document.title = pomo.running
+    ? '(' + $('pomoTime').textContent + ') TimeScribe'
+    : 'TimeScribe';
+}
+function pomoBeep() {
+  try {
+    const a = new (window.AudioContext || window.webkitAudioContext)();
+    const o = a.createOscillator(), g = a.createGain();
+    o.connect(g); g.connect(a.destination); o.frequency.value = 660;
+    o.start(); g.gain.setValueAtTime(0.2, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.6);
+    o.stop(a.currentTime + 0.6);
+  } catch (e) { /* ignore */ }
+}
+function pomoNotify(msg) {
+  pomoBeep();
+  try {
+    if (window.Notification && Notification.permission === 'granted')
+      new Notification('TimeScribe Pomodoro', { body: msg });
+  } catch (e) { /* ignore */ }
+}
+function pomoLoad(kind) {
+  pomo.phase = kind;
+  pomo.remaining = pomoMins(kind) * 60;
+  pomoRender();
+}
+function pomoNext() {
+  if (pomo.phase === 'focus') {
+    pomo.done += 1;
+    const longEvery = 4;
+    const kind = (pomo.done % longEvery === 0) ? 'long' : 'break';
+    pomoLoad(kind);
+    pomoNotify('Focus done — take a ' + (kind === 'long' ? 'long ' : '') + 'break.');
+  } else {
+    pomoLoad('focus');
+    pomoNotify('Break over — back to focus.');
+  }
+}
+function pomoStop() {
+  pomo.running = false;
+  if (pomo.tick) { clearInterval(pomo.tick); pomo.tick = null; }
+  pomoRender();
+}
+$('pomoStart').onclick = () => {
+  if (pomo.running) { pomoStop(); return; }
+  if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
+  pomo.running = true;
+  pomo.tick = setInterval(() => {
+    pomo.remaining -= 1;
+    if (pomo.remaining <= 0) pomoNext();
+    pomoRender();
+  }, 1000);
+  pomoRender();
+};
+$('pomoReset').onclick = () => { pomoStop(); pomoLoad(pomo.phase); };
+$('pomoSkip').onclick = () => { pomoStop(); pomoNext(); };
+for (const id of ['pomoFocus', 'pomoBreak', 'pomoLong'])
+  $(id).onchange = () => { if (!pomo.running) pomoLoad(pomo.phase); };
+pomoRender();
 
 function showTab(name) {
   document.querySelectorAll('nav button').forEach(b =>
