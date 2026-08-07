@@ -327,10 +327,9 @@ def open_ticket_url(body: OpenUrl):
         args = [edge]
         if prof:
             args.append(f"--profile-directory={prof}")
-        # --new-window makes Edge actually surface the URL in the chosen
-        # profile even when another Edge (e.g. the dashboard app window) is
-        # already running.
-        args += ["--new-window", body.url]
+        # No --new-window: Edge opens the URL as a new TAB in that profile's
+        # existing window and raises it to the foreground.
+        args.append(body.url)
         try:
             subprocess.Popen(args, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             print(f"[open-ticket] launched: {' '.join(args)}")
