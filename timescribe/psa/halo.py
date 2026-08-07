@@ -228,9 +228,14 @@ class HaloPSAAdapter(PSAAdapter):
     def _api_get(self, path: str, params: dict = None) -> dict:
         token = self._ensure_access_token()
         url = urljoin(self.api_base + "/", path.lstrip("/"))
+        print(f"[halo] GET {path} params={params or {}}")
         resp = httpx.get(url, headers={"Authorization": f"Bearer {token}"},
                          params=params, timeout=30)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            detail = (resp.text or "")[:500]
+            print(f"[halo] GET {path} -> {resp.status_code}: {detail}")
+            raise RuntimeError(f"Halo {path} returned {resp.status_code}: "
+                               f"{detail or 'no detail'}")
         return resp.json()
 
     def _api_post(self, path: str, body: list | dict) -> dict:
@@ -432,28 +437,51 @@ class HaloPSAAdapter(PSAAdapter):
         self._api_post("Client", [item])
         print(f"[halo] published org AI key to client {client_id} field '{field_name}'")
 
+    def _ticket_row(self, r: dict) -> dict:
+        return {
+            "id": r.get("id"),
+            "client": (r.get("client_name") or r.get("clientname")
+                       or r.get("client") or ""),
+            "subject": (r.get("summary") or r.get("subject") or r.get("details") or "")[:120],
+            "status": str(r.get("status_name") or r.get("statusname")
+                          or r.get("status") or ""),
+        }
+
     def search_tickets(self, query: str, limit: int = 20) -> list:
         """Free-text ticket search (id, client, subject, status) so the user
-        can relink a draft to a ticket the AI didn't pick. Searches all
-        tickets, not just the agent's open ones."""
-        params = {"search": query, "count": limit, "pageinate": True,
-                  "page_size": limit, "page_no": 1}
+        can relink a draft to a ticket the AI didn't pick."""
+        out, seen = [], set()
+
+        # If they typed a ticket number, fetch it directly first.
+        q = query.strip()
+        if q.isdigit():
+            try:
+                t = self._api_get(f"Tickets/{q}")
+                if isinstance(t, dict) and t.get("id"):
+                    row = self._ticket_row(t)
+                    out.append(row); seen.add(row["id"])
+            except Exception as exc:
+                print(f"[halo] direct ticket #{q} lookup failed: {exc}")
+
+        # Free-text search. Halo's /Tickets accepts `search`; ask for enough
+        # rows and don't restrict to open so any ticket is findable.
+        params = {"search": q, "count": limit, "page_size": limit,
+                  "page_no": 1, "pageinate": True, "open_only": False}
         try:
             raw = self._api_get("Tickets", params=params)
         except Exception as exc:
             print(f"[halo] ticket search failed: {exc}")
-            return []
+            return out
         rows = raw.get("tickets") if isinstance(raw, dict) else raw
-        out = []
-        for r in (rows or [])[:limit]:
-            if not isinstance(r, dict):
+        shape = (list(raw.keys())[:10] if isinstance(raw, dict) else f"list[{len(raw or [])}]")
+        print(f"[halo] ticket search '{q}': raw shape={shape}, "
+              f"{len(rows or []) if isinstance(rows, list) else '?'} rows")
+        for r in (rows or []):
+            if not isinstance(r, dict) or r.get("id") in seen:
                 continue
-            out.append({
-                "id": r.get("id"),
-                "client": r.get("client_name") or "",
-                "subject": (r.get("summary") or r.get("subject") or "")[:120],
-                "status": str(r.get("status_name") or r.get("status") or ""),
-            })
+            out.append(self._ticket_row(r)); seen.add(r.get("id"))
+            if len(out) >= limit:
+                break
         return out
 
     def get_ticket(self, ticket_id) -> dict:
