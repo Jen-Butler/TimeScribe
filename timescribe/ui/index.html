@@ -284,6 +284,10 @@
       Detected browsers and profiles on this machine. Check the ones whose
       history should feed the digest.</p>
     <div id="browserList" style="font-size:13px"></div>
+    <label style="display:block;margin:12px 0 4px">Open ticket links in</label>
+    <select id="ticketProfile" style="width:auto;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+      <option value="">System default browser</option>
+    </select>
     <button id="btnSaveBrowsers" style="margin-top:12px">Save sources</button>
     <div id="browserMsg" style="font-size:12px;margin-top:6px"></div>
   </div>
@@ -908,7 +912,7 @@ async function loadTimesheet() {
       const noCharge = (t.charge_type || '').toLowerCase().includes('no charge');
       const tkt = t.ticket_id
         ? (r.halo_base_url
-            ? `<a href="${r.halo_base_url}/ticket?id=${t.ticket_id}" target="_blank" rel="noopener" title="Open ticket in Halo" style="color:var(--accent);font-size:11px;text-decoration:none">#${t.ticket_id} ↗</a>`
+            ? `<a href="${r.halo_base_url}/ticket?id=${t.ticket_id}" onclick="event.preventDefault();openTicketUrl(this.href)" rel="noopener" title="Open ticket in Halo" style="color:var(--accent);font-size:11px;text-decoration:none;cursor:pointer">#${t.ticket_id} ↗</a>`
             : `<span style="color:var(--accent);font-size:11px">#${t.ticket_id}</span>`)
         : `<span style="color:var(--muted);font-size:11px">no ticket</span>`;
       div.innerHTML =
@@ -1139,7 +1143,7 @@ async function loadPosted() {
     for (const p of r.entries) {
       const div = document.createElement('div');
       const target = p.ticket_id
-        ? (p.halo_url ? `<a href="${p.halo_url}" target="_blank" style="color:var(--accent)">#${p.ticket_id}</a>` : '#' + p.ticket_id)
+        ? (p.halo_url ? `<a href="${p.halo_url}" onclick="event.preventDefault();openTicketUrl(this.href)" style="color:var(--accent);cursor:pointer">#${p.ticket_id}</a>` : '#' + p.ticket_id)
         : 'Quick Time';
       div.innerHTML = `<strong>${p.day}</strong> ${p.start_time}-${p.end_time} (${fmtH(p.minutes)}) → ${target}` +
         ` <span style="color:var(--muted)">${(p.note || '').slice(0, 90)}</span>`;
@@ -1421,8 +1425,9 @@ $('btnBrowsersRefresh').onclick = loadBrowsers;
 $('btnSaveBrowsers').onclick = async () => {
   try {
     await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({browser_profiles: {...browserState.sel}})});
-    $('browserMsg').textContent = 'Sources saved. Next digest will use them.';
+      body: JSON.stringify({browser_profiles: {...browserState.sel},
+                            ticket_browser_profile: $('ticketProfile').value})});
+    $('browserMsg').textContent = 'Saved. Sources + ticket-link profile updated.';
     $('browserMsg').className = 'ok-text';
   } catch (e) {
     $('browserMsg').textContent = 'Save failed: ' + e.message;
@@ -1430,6 +1435,30 @@ $('btnSaveBrowsers').onclick = async () => {
   }
 };
 loadBrowsers();
+
+// Populate the "open ticket links in" dropdown with Edge profiles.
+async function loadTicketProfile() {
+  try {
+    const [bs, st] = await Promise.all([api('/api/browsers'), api('/api/status')]);
+    const cur = (st.config || {}).ticket_browser_profile || '';
+    const sel = $('ticketProfile');
+    sel.innerHTML = '<option value="">System default browser</option>';
+    for (const b of (bs.browsers || [])) {
+      if (b.key !== 'edge') continue;   // --profile-directory is an Edge/Chromium concept
+      for (const p of b.profiles) {
+        const o = document.createElement('option');
+        o.value = p.folder; o.textContent = 'Edge — ' + p.name + ' (' + p.folder + ')';
+        if (p.folder === cur) o.selected = true;
+        sel.appendChild(o);
+      }
+    }
+    if (cur && !Array.from(sel.options).some(o => o.value === cur)) {
+      const o = document.createElement('option');
+      o.value = cur; o.textContent = cur; o.selected = true; sel.appendChild(o);
+    }
+  } catch (e) { /* ignore */ }
+}
+loadTicketProfile();
 
 // ---- updates ----
 async function checkUpdate(fetch) {
@@ -1647,6 +1676,13 @@ function pickTicket(id) {
   saveDraft(i);   // persist the new ticket + refresh the row's client/subject
 }
 
+// Open a Halo ticket URL in the configured Edge profile (falls back to a
+// normal new tab if the backend can't launch it).
+function openTicketUrl(url) {
+  api('/api/open-ticket', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url})}).catch(() => window.open(url, '_blank'));
+}
+
 // ---- ticket detail modal (info + all notes/actions) ----
 function closeTicketDetail() { $('ticketDetailOverlay').style.display = 'none'; }
 $('tdClose2').onclick = closeTicketDetail;
@@ -1662,7 +1698,8 @@ async function openTicketDetail(i) {
     const t = await api('/api/ticket?id=' + encodeURIComponent(id));
     const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
     $('tdTitle').textContent = '#' + t.id + ' — ' + esc(t.summary);
-    if (t.url) { $('tdOpen').href = t.url; $('tdOpen').style.display = ''; }
+    if (t.url) { $('tdOpen').href = t.url; $('tdOpen').style.display = '';
+                 $('tdOpen').onclick = (e) => { e.preventDefault(); openTicketUrl(t.url); }; }
     const row = (k,v) => v ? `<div style="margin:2px 0"><span style="color:var(--muted)">${k}:</span> ${esc(v)}</div>` : '';
     let html = row('Client', (t.client||'') + (t.site ? ' · ' + t.site : ''))
       + row('Status', t.status) + row('Priority', t.priority)

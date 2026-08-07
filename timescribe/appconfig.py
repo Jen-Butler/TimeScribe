@@ -50,6 +50,9 @@ DEFAULTS: Dict[str, Any] = {
     # Which browser profiles to read. "browserkey::folder" -> bool. Absent
     # source defaults to enabled (unless in legacy exclude_profiles).
     "browser_profiles": {},
+    # Edge profile-directory (folder name, e.g. "Profile 1") that ticket
+    # links open in. "" = the system default browser/profile.
+    "ticket_browser_profile": "",
 }
 
 

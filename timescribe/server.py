@@ -108,6 +108,7 @@ class ConfigUpdate(BaseModel):
     digest_interval_minutes: Optional[int] = None
     combined_digest_drafts: Optional[bool] = None
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
+    ticket_browser_profile: Optional[str] = None  # Edge profile-directory
 
 
 class SecretUpdate(BaseModel):
@@ -292,6 +293,38 @@ def browsers_list():
             "enabled": enabled.get(sid, default),
         })
     return {"browsers": list(grouped.values())}
+
+
+class OpenUrl(BaseModel):
+    url: str
+
+
+@app.post("/api/open-ticket")
+def open_ticket_url(body: OpenUrl):
+    """Open a Halo ticket URL in the configured Edge profile (so it lands in
+    the window the tech actually works in). Restricted to the configured
+    Halo host for safety."""
+    import shutil, subprocess
+    from urllib.parse import urlparse
+    cfg = appconfig.load()
+    base = (cfg.get("halo_base_url") or "").rstrip("/")
+    u = urlparse(body.url)
+    if u.scheme not in ("http", "https"):
+        raise HTTPException(400, "bad url")
+    if base and not body.url.startswith(base):
+        raise HTTPException(400, "only Halo URLs may be opened this way")
+    prof = (cfg.get("ticket_browser_profile") or "").strip()
+    edge = (shutil.which("msedge")
+            or r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+    args = [edge]
+    if prof:
+        args.append(f"--profile-directory={prof}")
+    args.append(body.url)
+    try:
+        subprocess.Popen(args, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception as exc:
+        raise HTTPException(500, f"couldn't open browser: {exc}")
+    return {"ok": True}
 
 
 @app.get("/api/tickets/search")
