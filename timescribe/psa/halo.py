@@ -479,6 +479,9 @@ class HaloPSAAdapter(PSAAdapter):
         for r in (rows or []):
             if not isinstance(r, dict) or r.get("id") in seen:
                 continue
+            subj = (r.get("summary") or r.get("subject") or "")
+            if subj.strip().lower().startswith("quick time"):
+                continue   # auto-created quick-time entries aren't linkable tickets
             out.append(self._ticket_row(r)); seen.add(r.get("id"))
             if len(out) >= limit:
                 break
