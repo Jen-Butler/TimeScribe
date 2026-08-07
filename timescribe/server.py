@@ -110,6 +110,9 @@ class ConfigUpdate(BaseModel):
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
     ticket_browser_profile: Optional[str] = None  # Edge profile-directory
     draft_sort_default: Optional[str] = None    # default draft-list sort
+    pomo_focus_min: Optional[int] = None
+    pomo_break_min: Optional[int] = None
+    pomo_long_min: Optional[int] = None
 
 
 class SecretUpdate(BaseModel):

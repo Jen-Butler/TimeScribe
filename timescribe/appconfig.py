@@ -56,6 +56,10 @@ DEFAULTS: Dict[str, Any] = {
     # Default sort for the draft list: smart | start_asc | start_desc |
     # end_asc | end_desc.
     "draft_sort_default": "smart",
+    # Pomodoro durations (minutes), set in Settings.
+    "pomo_focus_min": 25,
+    "pomo_break_min": 5,
+    "pomo_long_min": 15,
 }
 
 

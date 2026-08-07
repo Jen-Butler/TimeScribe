@@ -184,8 +184,6 @@
           <option value="break">Break</option>
           <option value="long">Long</option>
         </select>
-        <input id="pomoMin" type="number" min="1" max="180" value="25" title="Minutes for this mode"
-               style="width:48px;padding:3px 4px;font-size:12px">
         <strong id="pomoTime" style="font-size:16px;min-width:52px;text-align:center">25:00</strong>
         <button id="pomoStart" style="margin:0;padding:3px 10px;font-size:12px;background:var(--good)">▶</button>
         <button id="pomoReset" title="Reset" style="margin:0;padding:3px 8px;font-size:12px;background:var(--border)">⟲</button>
@@ -295,6 +293,15 @@
       <option value="end_asc">End ↑</option>
       <option value="end_desc">End ↓</option>
     </select>
+    <label style="display:block;margin:12px 0 4px">Pomodoro durations (minutes)</label>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <label style="margin:0;font-size:12px;color:var(--muted)">Focus
+        <input id="pomoFocusMin" type="number" min="1" max="180" value="25" style="width:56px;padding:4px 6px;font-size:13px;margin-left:4px"></label>
+      <label style="margin:0;font-size:12px;color:var(--muted)">Break
+        <input id="pomoBreakMin" type="number" min="1" max="60" value="5" style="width:56px;padding:4px 6px;font-size:13px;margin-left:4px"></label>
+      <label style="margin:0;font-size:12px;color:var(--muted)">Long
+        <input id="pomoLongMin" type="number" min="1" max="90" value="15" style="width:56px;padding:4px 6px;font-size:13px;margin-left:4px"></label>
+    </div>
     <button id="btnSaveSchedule" style="margin-top:12px">Save schedule</button>
     <div id="schedMsg" style="font-size:12px;margin-top:6px"></div>
   </div>
@@ -1343,8 +1350,12 @@ $('btnSaveSchedule').onclick = async () => {
         digest_weekdays: schedDays,
         combined_digest_drafts: $('combinedDrafts').checked,
         draft_sort_default: $('draftSortDefault').value,
+        pomo_focus_min: parseInt($('pomoFocusMin').value, 10) || 25,
+        pomo_break_min: parseInt($('pomoBreakMin').value, 10) || 5,
+        pomo_long_min: parseInt($('pomoLongMin').value, 10) || 15,
       })});
     if ($('draftSort')) { $('draftSort').value = $('draftSortDefault').value; loadDrafts(); }
+    if (typeof pomoSyncDurations === 'function') pomoSyncDurations();
     $('schedMsg').textContent = 'Schedule saved.';
     $('schedMsg').className = 'ok-text';
   } catch (e) {
@@ -1751,9 +1762,8 @@ async function openTicketDetail(i) {
   }
 }
 
-// ---- Pomodoro timer (compact, in the status bar) ----
+// ---- Pomodoro timer (compact, in the status bar; durations from Settings) ----
 let pomoDur = { focus: 25, break: 5, long: 15 };
-try { const s = JSON.parse(localStorage.getItem('pomoDur') || 'null'); if (s) pomoDur = s; } catch (e) {}
 const pomo = { phase: 'focus', remaining: pomoDur.focus * 60, running: false, tick: null, done: 0 };
 function pomoRender() {
   const m = Math.floor(pomo.remaining / 60), s = pomo.remaining % 60;
@@ -1785,8 +1795,22 @@ function pomoNotify(msg) {
 function pomoLoad(kind) {
   pomo.phase = kind;
   pomo.remaining = (pomoDur[kind] || 25) * 60;
-  $('pomoMin').value = pomoDur[kind] || 25;
   pomoRender();
+}
+// Durations live in Settings/config; refresh them and reload if idle.
+async function pomoSyncDurations() {
+  try {
+    const c = (await api('/api/status')).config || {};
+    pomoDur = {
+      focus: parseInt(c.pomo_focus_min, 10) || 25,
+      break: parseInt(c.pomo_break_min, 10) || 5,
+      long: parseInt(c.pomo_long_min, 10) || 15,
+    };
+    if ($('pomoFocusMin')) $('pomoFocusMin').value = pomoDur.focus;
+    if ($('pomoBreakMin')) $('pomoBreakMin').value = pomoDur.break;
+    if ($('pomoLongMin')) $('pomoLongMin').value = pomoDur.long;
+    if (!pomo.running) pomoLoad(pomo.phase);
+  } catch (e) { /* keep defaults */ }
 }
 function pomoNext() {
   if (pomo.phase === 'focus') {
@@ -1820,16 +1844,8 @@ $('pomoReset').onclick = () => { pomoStop(); pomoLoad(pomo.phase); };
 $('pomoSkip').onclick = () => { pomoStop(); pomoNext(); };
 // Mode dropdown: switch the timer to that mode and load its minutes.
 $('pomoMode').onchange = () => { pomoStop(); pomoLoad($('pomoMode').value); };
-// Minutes input: set the selected mode's duration (persisted) and reload.
-$('pomoMin').onchange = () => {
-  const v = parseInt($('pomoMin').value, 10);
-  if (!isNaN(v) && v >= 1) {
-    pomoDur[pomo.phase] = v;
-    try { localStorage.setItem('pomoDur', JSON.stringify(pomoDur)); } catch (e) {}
-    if (!pomo.running) pomoLoad(pomo.phase);
-  }
-};
 pomoLoad('focus');
+pomoSyncDurations();   // pull durations set in Settings
 
 function showTab(name) {
   document.querySelectorAll('nav button').forEach(b =>
