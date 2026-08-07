@@ -189,7 +189,8 @@
   </nav>
 
   <div class="pane" data-pane="settings">
-  <div class="card" id="setupCard">
+  <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+  <div class="card" id="setupCard" style="flex:1 1 380px">
     <h2>Setup</h2>
     <label>HaloPSA URL</label>
     <input id="haloUrl" placeholder="https://yourcompany.halopsa.com">
@@ -248,7 +249,7 @@
     <div id="msg"></div>
   </div>
 
-  <div class="card" id="scheduleCard">
+  <div class="card" id="scheduleCard" style="flex:1 1 380px">
     <h2>Digest schedule</h2>
     <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
       When automatic digests run and drafts get built. Digests run every
@@ -272,9 +273,18 @@
       <input type="checkbox" id="combinedDrafts" style="width:auto;margin:0">
       Build ticket-matched drafts during each digest (one AI pass does digest + matching)
     </label>
+    <label style="display:block;margin:12px 0 4px">Default draft sort</label>
+    <select id="draftSortDefault" style="width:auto;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+      <option value="smart">Status</option>
+      <option value="start_asc">Start ↑</option>
+      <option value="start_desc">Start ↓</option>
+      <option value="end_asc">End ↑</option>
+      <option value="end_desc">End ↓</option>
+    </select>
     <button id="btnSaveSchedule" style="margin-top:12px">Save schedule</button>
     <div id="schedMsg" style="font-size:12px;margin-top:6px"></div>
   </div>
+  </div><!-- /settings top row -->
 
   <div class="card" id="browserCard">
     <h2>Browser sources
@@ -1321,6 +1331,10 @@ async function loadSchedule() {
     if (c.work_end) $('workEnd').value = c.work_end;
     if (c.digest_interval_minutes) $('digestInterval').value = String(c.digest_interval_minutes);
     $('combinedDrafts').checked = c.combined_digest_drafts !== false;
+    if (c.draft_sort_default) {
+      $('draftSortDefault').value = c.draft_sort_default;
+      if ($('draftSort')) $('draftSort').value = c.draft_sort_default;
+    }
     if (Array.isArray(c.digest_weekdays)) schedDays = c.digest_weekdays.map(Number);
     renderWeekdays();
   } catch (e) { renderWeekdays(); }
@@ -1334,7 +1348,9 @@ $('btnSaveSchedule').onclick = async () => {
         digest_interval_minutes: parseInt($('digestInterval').value, 10),
         digest_weekdays: schedDays,
         combined_digest_drafts: $('combinedDrafts').checked,
+        draft_sort_default: $('draftSortDefault').value,
       })});
+    if ($('draftSort')) { $('draftSort').value = $('draftSortDefault').value; loadDrafts(); }
     $('schedMsg').textContent = 'Schedule saved.';
     $('schedMsg').className = 'ok-text';
   } catch (e) {

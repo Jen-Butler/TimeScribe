@@ -109,6 +109,7 @@ class ConfigUpdate(BaseModel):
     combined_digest_drafts: Optional[bool] = None
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
     ticket_browser_profile: Optional[str] = None  # Edge profile-directory
+    draft_sort_default: Optional[str] = None    # default draft-list sort
 
 
 class SecretUpdate(BaseModel):

@@ -53,6 +53,9 @@ DEFAULTS: Dict[str, Any] = {
     # Edge profile-directory (folder name, e.g. "Profile 1") that ticket
     # links open in. "" = the system default browser/profile.
     "ticket_browser_profile": "",
+    # Default sort for the draft list: smart | start_asc | start_desc |
+    # end_asc | end_desc.
+    "draft_sort_default": "smart",
 }
 
 
