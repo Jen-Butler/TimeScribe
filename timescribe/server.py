@@ -402,6 +402,19 @@ def tickets_search(q: str, limit: int = 20):
         raise HTTPException(502, str(exc))
 
 
+@app.get("/api/tickets/mine")
+def tickets_mine():
+    """All tickets assigned to the logged-in agent, for the relink picker
+    to filter locally (no per-keystroke API calls, no /Client or /Site)."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    try:
+        return {"tickets": a.list_agent_tickets()}
+    except Exception as exc:
+        raise HTTPException(502, str(exc))
+
+
 @app.get("/api/ticket")
 def ticket_detail(id: int):
     """One ticket's detail, for the timesheet click-through panel."""

@@ -1693,41 +1693,74 @@ async function loadTimeline() {
 }
 
 // ---- ticket search popover (relink a draft to the right ticket) ----
-let _tsTargetIndex = null, _tsTimer = null;
-function openTicketSearch(i) {
+let _tsTargetIndex = null, _tsTimer = null, _myTickets = null;
+async function loadMyTickets(force) {
+  if (_myTickets && !force) return _myTickets;
+  const r = await api('/api/tickets/mine');
+  _myTickets = r.tickets || [];
+  return _myTickets;
+}
+function tsRow(t) {
+  const row = document.createElement('div');
+  row.style.cssText = 'padding:8px;border-bottom:1px solid var(--border);cursor:pointer';
+  const site = t.site && t.site !== t.client ? ` › ${(t.site||'').replace(/</g,'&lt;')}` : '';
+  row.innerHTML = `<strong>#${t.id}</strong> <span style="color:var(--muted)">${t.status||''}</span><br>`
+    + `<span>${(t.client||'').replace(/</g,'&lt;')}${site}</span> — ${(t.subject||'').replace(/</g,'&lt;')}`;
+  row.onmouseenter = () => row.style.background = 'var(--input-bg)';
+  row.onmouseleave = () => row.style.background = '';
+  row.onclick = () => pickTicket(t.id);
+  return row;
+}
+function tsFilter() {
+  const box = $('tsResults');
+  if (!_myTickets) return;
+  const q = $('tsInput').value.trim().toLowerCase();
+  const terms = q ? q.replace(/^#/, '').split(/\s+/) : [];
+  const list = !terms.length ? _myTickets : _myTickets.filter(t => {
+    const hay = `#${t.id} ${t.client||''} ${t.site||''} ${t.subject||''} ${t.status||''}`.toLowerCase();
+    return terms.every(term => hay.includes(term));
+  });
+  box.innerHTML = '';
+  if (!list.length) {
+    // Numeric fallback: jump to any ticket id even if it isn't assigned to you.
+    if (/^\d+$/.test(q)) {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:8px;cursor:pointer;color:var(--accent)';
+      row.innerHTML = `Use ticket <strong>#${q}</strong> directly →`;
+      row.onclick = () => pickTicket(parseInt(q, 10));
+      box.appendChild(row);
+    } else {
+      box.innerHTML = '<span style="color:var(--muted)">No matches in your tickets.</span>';
+    }
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const t of list.slice(0, 300)) frag.appendChild(tsRow(t));
+  box.appendChild(frag);
+  if (list.length > 300) {
+    const more = document.createElement('div');
+    more.style.cssText = 'padding:6px 8px;color:var(--muted);font-size:12px';
+    more.textContent = `Showing first 300 of ${list.length} — keep typing to narrow.`;
+    box.appendChild(more);
+  }
+}
+async function openTicketSearch(i) {
   _tsTargetIndex = i;
   $('tsInput').value = '';
-  $('tsResults').innerHTML = '<span style="color:var(--muted)">Type to search your Halo tickets…</span>';
   $('ticketSearchOverlay').style.display = 'flex';
+  $('tsResults').innerHTML = '<span style="color:var(--muted)">Loading your tickets…</span>';
   setTimeout(() => $('tsInput').focus(), 30);
+  try {
+    await loadMyTickets();
+    tsFilter();
+  } catch (e) {
+    $('tsResults').innerHTML = '<span class="err-text">Couldn\'t load your tickets: ' + e.message + '</span>';
+  }
 }
 function closeTicketSearch() { $('ticketSearchOverlay').style.display = 'none'; _tsTargetIndex = null; }
 $('tsClose').onclick = closeTicketSearch;
 $('ticketSearchOverlay').onclick = (e) => { if (e.target === $('ticketSearchOverlay')) closeTicketSearch(); };
-$('tsInput').oninput = () => {
-  clearTimeout(_tsTimer);
-  const q = $('tsInput').value.trim();
-  if (!q) { $('tsResults').innerHTML = ''; return; }
-  _tsTimer = setTimeout(async () => {
-    $('tsResults').innerHTML = '<span style="color:var(--muted)">Searching…</span>';
-    try {
-      const r = await api('/api/tickets/search?q=' + encodeURIComponent(q));
-      if (!r.tickets.length) { $('tsResults').innerHTML = '<span style="color:var(--muted)">No matches.</span>'; return; }
-      $('tsResults').innerHTML = '';
-      for (const t of r.tickets) {
-        const row = document.createElement('div');
-        row.style.cssText = 'padding:8px;border-bottom:1px solid var(--border);cursor:pointer';
-        const site = t.site && t.site !== t.client ? ` › ${(t.site||'').replace(/</g,'&lt;')}` : '';
-        row.innerHTML = `<strong>#${t.id}</strong> <span style="color:var(--muted)">${t.status}</span><br>`
-          + `<span>${(t.client||'').replace(/</g,'&lt;')}${site}</span> — ${(t.subject||'').replace(/</g,'&lt;')}`;
-        row.onmouseenter = () => row.style.background = 'var(--input-bg)';
-        row.onmouseleave = () => row.style.background = '';
-        row.onclick = () => pickTicket(t.id);
-        $('tsResults').appendChild(row);
-      }
-    } catch (e) { $('tsResults').innerHTML = '<span class="err-text">Search failed: ' + e.message + '</span>'; }
-  }, 250);
-};
+$('tsInput').oninput = () => { clearTimeout(_tsTimer); _tsTimer = setTimeout(tsFilter, 60); };
 function pickTicket(id) {
   const i = _tsTargetIndex;
   closeTicketSearch();

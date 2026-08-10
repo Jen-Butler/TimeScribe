@@ -549,6 +549,55 @@ class HaloPSAAdapter(PSAAdapter):
         print(f"[halo] search '{q}': {len(out)} ticket(s) total")
         return out[:limit]
 
+    def list_agent_tickets(self, max_tickets: int = 2000) -> list:
+        """Every ticket assigned to the logged-in agent (open AND closed),
+        trimmed to the fields the relink picker needs and cached ~5 min.
+
+        This backs the relink search: the UI fetches this list once and
+        filters it locally as the user types, so there are no per-keystroke
+        API calls -- and it never touches /Client or /Site, sidestepping
+        the 403 on those endpoints entirely."""
+        import time as _t
+        now = _t.time()
+        if (getattr(self, "_mytix_cache", None) is not None
+                and now - getattr(self, "_mytix_ts", 0) < 300):
+            return self._mytix_cache
+
+        try:
+            agent_id = self.current_agent_id
+        except Exception as exc:
+            print(f"[halo] can't resolve agent id for my-tickets: {exc}")
+            return []
+
+        out, seen, page = [], set(), 1
+        while len(out) < max_tickets:
+            try:
+                raw = self._api_get("Tickets", params={
+                    "agent_id": agent_id, "open_only": False,
+                    "count": 100, "page_size": 100, "page_no": page,
+                    "pageinate": True})
+            except Exception as exc:
+                print(f"[halo] my-tickets page {page} failed: {exc}")
+                break
+            rows = raw.get("tickets") if isinstance(raw, dict) else raw
+            if not rows:
+                break
+            for r in rows:
+                if not isinstance(r, dict) or r.get("id") in seen:
+                    continue
+                if (r.get("summary") or "").strip().lower().startswith("quick time"):
+                    continue
+                out.append(self._ticket_row(r)); seen.add(r.get("id"))
+            if len(rows) < 100:
+                break
+            page += 1
+
+        out.sort(key=lambda t: t.get("id") or 0, reverse=True)
+        self._mytix_cache = out
+        self._mytix_ts = now
+        print(f"[halo] my-tickets: {len(out)} for agent {agent_id}")
+        return out
+
     def get_ticket(self, ticket_id) -> dict:
         """Fetch one ticket's detail for the timesheet click-through panel."""
         t = self._api_get(f"Tickets/{ticket_id}")
