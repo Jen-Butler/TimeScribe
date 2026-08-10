@@ -95,6 +95,18 @@ def _run_digest_safe() -> bool:
             digest.run_digest(date_cls.today())     # full day so far, replace
         _state["last_digest"] = datetime.now()
         _state["last_error"] = None
+
+        # Warm the relink picker's ticket cache so the search opens instantly.
+        # (Same hourly cadence as the digest; refresh button forces a reload.)
+        try:
+            if adapter is None:
+                from timescribe.server import get_adapter
+                adapter = get_adapter()
+            if adapter is not None and adapter.is_authenticated():
+                n = len(adapter.list_agent_tickets(force=True))
+                print(f"[scheduler] warmed relink ticket cache: {n} tickets")
+        except Exception as exc:
+            print(f"[scheduler] ticket cache warm failed: {exc!r}")
         return True
     except Exception as exc:
         _state["last_error"] = f"digest: {exc}"

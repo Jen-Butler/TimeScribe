@@ -549,18 +549,22 @@ class HaloPSAAdapter(PSAAdapter):
         print(f"[halo] search '{q}': {len(out)} ticket(s) total")
         return out[:limit]
 
-    def list_agent_tickets(self, max_tickets: int = 2000) -> list:
+    def list_agent_tickets(self, max_tickets: int = 2000, force: bool = False) -> list:
         """Every ticket assigned to the logged-in agent (open AND closed),
-        trimmed to the fields the relink picker needs and cached ~5 min.
+        trimmed to the fields the relink picker needs.
 
         This backs the relink search: the UI fetches this list once and
         filters it locally as the user types, so there are no per-keystroke
         API calls -- and it never touches /Client or /Site, sidestepping
-        the 403 on those endpoints entirely."""
+        the 403 on those endpoints entirely.
+
+        The cache is held until explicitly refreshed rather than expiring on
+        a timer: the scheduler warms it each digest run (hourly) so searches
+        open instantly, and the UI's refresh button passes force=True for an
+        on-demand reload (which is allowed to take a while)."""
         import time as _t
         now = _t.time()
-        if (getattr(self, "_mytix_cache", None) is not None
-                and now - getattr(self, "_mytix_ts", 0) < 300):
+        if not force and getattr(self, "_mytix_cache", None) is not None:
             return self._mytix_cache
 
         try:

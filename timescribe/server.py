@@ -403,14 +403,16 @@ def tickets_search(q: str, limit: int = 20):
 
 
 @app.get("/api/tickets/mine")
-def tickets_mine():
+def tickets_mine(refresh: bool = False):
     """All tickets assigned to the logged-in agent, for the relink picker
-    to filter locally (no per-keystroke API calls, no /Client or /Site)."""
+    to filter locally (no per-keystroke API calls, no /Client or /Site).
+    Served from cache (warmed hourly by the scheduler); refresh=true forces
+    a fresh pull from Halo."""
     a = get_adapter()
     if a is None or not a.is_authenticated():
         raise HTTPException(401, "Halo not connected")
     try:
-        return {"tickets": a.list_agent_tickets()}
+        return {"tickets": a.list_agent_tickets(force=refresh)}
     except Exception as exc:
         raise HTTPException(502, str(exc))
 

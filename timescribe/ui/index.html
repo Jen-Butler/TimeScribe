@@ -493,6 +493,9 @@
        border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.4)">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
       <strong style="font-size:14px;flex:1">Find a ticket to link</strong>
+      <span id="tsMeta" style="font-size:11px;color:var(--muted)"></span>
+      <button type="button" id="tsRefresh" title="Reload the latest tickets from Halo (takes a moment)"
+              style="margin:0;padding:3px 10px;font-size:12px">⟲ Refresh</button>
       <button type="button" id="tsClose" style="margin:0;padding:3px 10px;font-size:12px">✕</button>
     </div>
     <input id="tsInput" placeholder="Search by client, subject, or ticket #…" autocomplete="off"
@@ -1696,9 +1699,12 @@ async function loadTimeline() {
 let _tsTargetIndex = null, _tsTimer = null, _myTickets = null;
 async function loadMyTickets(force) {
   if (_myTickets && !force) return _myTickets;
-  const r = await api('/api/tickets/mine');
+  const r = await api('/api/tickets/mine' + (force ? '?refresh=1' : ''));
   _myTickets = r.tickets || [];
   return _myTickets;
+}
+function tsUpdateMeta() {
+  $('tsMeta').textContent = _myTickets ? `${_myTickets.length} of your tickets` : '';
 }
 function tsRow(t) {
   const row = document.createElement('div');
@@ -1752,6 +1758,7 @@ async function openTicketSearch(i) {
   setTimeout(() => $('tsInput').focus(), 30);
   try {
     await loadMyTickets();
+    tsUpdateMeta();
     tsFilter();
   } catch (e) {
     $('tsResults').innerHTML = '<span class="err-text">Couldn\'t load your tickets: ' + e.message + '</span>';
@@ -1761,6 +1768,20 @@ function closeTicketSearch() { $('ticketSearchOverlay').style.display = 'none'; 
 $('tsClose').onclick = closeTicketSearch;
 $('ticketSearchOverlay').onclick = (e) => { if (e.target === $('ticketSearchOverlay')) closeTicketSearch(); };
 $('tsInput').oninput = () => { clearTimeout(_tsTimer); _tsTimer = setTimeout(tsFilter, 60); };
+$('tsRefresh').onclick = async () => {
+  const btn = $('tsRefresh');
+  btn.disabled = true; btn.textContent = '⟲ Refreshing…';
+  $('tsResults').innerHTML = '<span style="color:var(--muted)">Reloading the latest tickets from Halo… (this can take a minute)</span>';
+  try {
+    await loadMyTickets(true);
+    tsUpdateMeta();
+    tsFilter();
+  } catch (e) {
+    $('tsResults').innerHTML = '<span class="err-text">Refresh failed: ' + e.message + '</span>';
+  } finally {
+    btn.disabled = false; btn.textContent = '⟲ Refresh';
+  }
+};
 function pickTicket(id) {
   const i = _tsTargetIndex;
   closeTicketSearch();
