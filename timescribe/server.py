@@ -350,6 +350,44 @@ def open_ticket_url(body: OpenUrl):
         raise HTTPException(500, f"couldn't open browser: {exc}")
 
 
+class OpenAnyUrl(BaseModel):
+    url: str
+    profile: Optional[str] = None   # Edge profile-directory folder
+
+
+@app.post("/api/open-url")
+def open_any_url(body: OpenAnyUrl):
+    """Open any captured http(s) URL, in a specific Edge profile if given
+    (used by the activity peek to reopen a visit in the same profile)."""
+    import shutil, subprocess, os, webbrowser
+    from urllib.parse import urlparse
+    if urlparse(body.url).scheme not in ("http", "https"):
+        raise HTTPException(400, "bad url")
+    prof = (body.profile or "").strip()
+    edge = shutil.which("msedge")
+    if not edge:
+        for p in (r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                  r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"):
+            if os.path.exists(p):
+                edge = p; break
+    print(f"[open-url] url={body.url} profile={prof!r} edge={edge!r}")
+    if edge:
+        args = [edge]
+        if prof:
+            args.append(f"--profile-directory={prof}")
+        args.append(body.url)
+        try:
+            subprocess.Popen(args, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return {"ok": True}
+        except Exception as exc:
+            print(f"[open-url] edge launch failed: {exc}")
+    try:
+        webbrowser.open(body.url)
+        return {"ok": True, "opened_with": "default"}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 @app.get("/api/tickets/search")
 def tickets_search(q: str, limit: int = 20):
     """Free-text ticket search for relinking a draft to the right ticket."""
@@ -959,6 +997,9 @@ def timeline(day: str = None):
                         "clock": w["time"].strftime("%H:%M")})
     vis_out = [{"t": mins(v["time"]), "domain": v["domain"],
                 "title": v["title"], "profile": v["profile"],
+                "url": v.get("url", ""),
+                "profile_folder": v.get("profile_folder", ""),
+                "browser_key": v.get("browser_key", ""),
                 "clock": v["time"].strftime("%H:%M")} for v in visits]
     afk_out = [{"start": mins(a["start"]), "end": mins(a["end"]),
                 "minutes": a["minutes"]} for a in afk]

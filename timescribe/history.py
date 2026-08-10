@@ -145,6 +145,8 @@ def read_enabled_history(since: datetime, until: Optional[datetime] = None,
             continue
         for x in v:
             x["browser"] = name
+            x["browser_key"] = key
+            x["profile_folder"] = folder
         merged.extend(v)
         counts.append(f"{name}/{friendly}={len(v)}")
     merged.sort(key=lambda x: x["time"])

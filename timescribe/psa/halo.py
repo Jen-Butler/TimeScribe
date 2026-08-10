@@ -442,10 +442,43 @@ class HaloPSAAdapter(PSAAdapter):
             "id": r.get("id"),
             "client": (r.get("client_name") or r.get("clientname")
                        or r.get("client") or ""),
+            "site": (r.get("site_name") or r.get("sitename") or ""),
             "subject": (r.get("summary") or r.get("subject") or r.get("details") or "")[:120],
             "status": str(r.get("status_name") or r.get("statusname")
                           or r.get("status") or ""),
         }
+
+    def _match_client_ids(self, q: str, limit: int = 5) -> list:
+        """Client ids whose name matches q. Halo's /Client `search` does
+        case-insensitive substring matching on the client name."""
+        try:
+            raw = self._api_get("Client", params={"search": q, "count": 20,
+                                                  "page_size": 20, "pageinate": True})
+        except Exception as exc:
+            print(f"[halo] client search '{q}' failed: {exc}")
+            return []
+        rows = raw.get("clients") if isinstance(raw, dict) else raw
+        ids = [r.get("id") for r in (rows or [])
+               if isinstance(r, dict) and r.get("id")]
+        print(f"[halo] client name match '{q}': {len(ids)} -> {ids[:limit]}")
+        return ids[:limit]
+
+    def _match_site_ids(self, q: str, limit: int = 8) -> list:
+        """Site ids whose name matches q. This is what makes brand /
+        trading names findable -- e.g. 'BornGood' is a Halo *site* under a
+        client named something else, so a client- or summary-only search
+        never surfaces it. /Site `search` substring-matches the site name."""
+        try:
+            raw = self._api_get("Site", params={"search": q, "count": 20,
+                                                "page_size": 20, "pageinate": True})
+        except Exception as exc:
+            print(f"[halo] site search '{q}' failed: {exc}")
+            return []
+        rows = raw.get("sites") if isinstance(raw, dict) else raw
+        ids = [r.get("id") for r in (rows or [])
+               if isinstance(r, dict) and r.get("id")]
+        print(f"[halo] site name match '{q}': {len(ids)} -> {ids[:limit]}")
+        return ids[:limit]
 
     def _collect_tickets(self, params: dict, out: list, seen: set, limit: int):
         """Run a /Tickets query and append normalized rows (skipping
@@ -468,11 +501,24 @@ class HaloPSAAdapter(PSAAdapter):
                 return
 
     def search_tickets(self, query: str, limit: int = 25) -> list:
-        """Find tickets by number, summary text, OR client/company name.
-        Halo's ticket `search` only matches summary text, so we also resolve
-        matching clients and pull their tickets."""
+        """Find tickets by number, ticket text, company (client) name, OR
+        site / trading name.
+
+        Halo's ticket `search` only matches ticket text (summary/details),
+        so a term that only appears as a company or brand name never
+        surfaces. We therefore resolve matching clients AND sites and pull
+        their tickets too. The site branch is what makes brand names like
+        'BornGood' (a Halo site under a differently-named client) findable.
+        All branches include closed tickets (open_only=false) and dedupe."""
         out, seen = [], set()
         q = query.strip()
+        if not q:
+            return out
+
+        def pull(params):
+            params.update({"count": limit, "page_size": limit, "page_no": 1,
+                           "pageinate": True, "open_only": False})
+            self._collect_tickets(params, out, seen, limit)
 
         # 1) Exact ticket number.
         if q.isdigit():
@@ -483,28 +529,24 @@ class HaloPSAAdapter(PSAAdapter):
             except Exception as exc:
                 print(f"[halo] direct ticket #{q} lookup failed: {exc}")
 
-        # 2) Summary text search.
-        self._collect_tickets(
-            {"search": q, "count": limit, "page_size": limit, "page_no": 1,
-             "pageinate": True, "open_only": False}, out, seen, limit)
+        # 2) Ticket text search (summary / details / reference).
+        pull({"search": q})
 
-        # 3) Client/company name -> that client's tickets.
+        # 3) Company (client) name -> that client's tickets.
         if len(out) < limit:
-            try:
-                craw = self._api_get("Client", params={"search": q, "count": 5,
-                                                        "page_size": 5, "pageinate": True})
-                clients = craw.get("clients") if isinstance(craw, dict) else craw
-                cids = [c.get("id") for c in (clients or []) if isinstance(c, dict) and c.get("id")]
-                print(f"[halo] client search '{q}': {len(cids)} client(s) {cids[:5]}")
-                for cid in cids[:5]:
-                    if len(out) >= limit:
-                        break
-                    self._collect_tickets(
-                        {"client_id": cid, "count": limit, "page_size": limit,
-                         "page_no": 1, "pageinate": True, "open_only": False},
-                        out, seen, limit)
-            except Exception as exc:
-                print(f"[halo] client search failed: {exc}")
+            for cid in self._match_client_ids(q):
+                if len(out) >= limit:
+                    break
+                pull({"client_id": cid})
+
+        # 4) Site / trading name -> that site's tickets.
+        if len(out) < limit:
+            for sid in self._match_site_ids(q):
+                if len(out) >= limit:
+                    break
+                pull({"site_id": sid})
+
+        print(f"[halo] search '{q}': {len(out)} ticket(s) total")
         return out[:limit]
 
     def get_ticket(self, ticket_id) -> dict:

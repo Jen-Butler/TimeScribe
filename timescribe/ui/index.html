@@ -1717,8 +1717,9 @@ $('tsInput').oninput = () => {
       for (const t of r.tickets) {
         const row = document.createElement('div');
         row.style.cssText = 'padding:8px;border-bottom:1px solid var(--border);cursor:pointer';
+        const site = t.site && t.site !== t.client ? ` › ${(t.site||'').replace(/</g,'&lt;')}` : '';
         row.innerHTML = `<strong>#${t.id}</strong> <span style="color:var(--muted)">${t.status}</span><br>`
-          + `<span>${(t.client||'').replace(/</g,'&lt;')}</span> — ${(t.subject||'').replace(/</g,'&lt;')}`;
+          + `<span>${(t.client||'').replace(/</g,'&lt;')}${site}</span> — ${(t.subject||'').replace(/</g,'&lt;')}`;
         row.onmouseenter = () => row.style.background = 'var(--input-bg)';
         row.onmouseleave = () => row.style.background = '';
         row.onclick = () => pickTicket(t.id);
@@ -1853,11 +1854,29 @@ async function openActivityDetail(i) {
     }).join('')
       : '<div style="color:var(--muted)">No app-focus events in this window.</div>';
     html += `<div style="font-weight:600;margin:10px 0 2px">Browser (${vis.length})</div>`;
-    html += vis.length ? vis.map(v =>
-      `<div style="display:flex;gap:8px;font-size:12px;padding:1px 0"><span style="color:var(--muted);min-width:44px">${v.clock}</span>`
-      + `<span style="min-width:120px">[${esc(v.profile)}]</span><span style="flex:1">${esc(v.domain)} — ${esc(v.title)}</span></div>`).join('')
+    html += vis.length ? vis.map((v, vi) => {
+      const linkable = v.url && /^https?:/i.test(v.url);
+      const chromium = /edge|chrome|brave|vivaldi|chromium/i.test(v.browser_key || '');
+      const label = esc(v.domain) + ' — ' + esc(v.title);
+      const body = linkable
+        ? `<a href="${esc(v.url)}" data-adv="${vi}" style="flex:1;color:var(--accent);text-decoration:none;cursor:pointer">${label} ↗</a>`
+        : `<span style="flex:1">${label}</span>`;
+      return `<div style="display:flex;gap:8px;font-size:12px;padding:1px 0"><span style="color:var(--muted);min-width:44px">${v.clock}</span>`
+        + `<span style="min-width:120px">[${esc(v.profile)}]</span>${body}</div>`;
+    }).join('')
       : '<div style="color:var(--muted)">No browser visits in this window.</div>';
     $('adBody').innerHTML = html;
+    // Wire browser links to reopen in the same profile the visit used.
+    $('adBody').querySelectorAll('a[data-adv]').forEach(a => {
+      a.onclick = (ev) => {
+        ev.preventDefault();
+        const v = vis[+a.getAttribute('data-adv')];
+        const chromium = /edge|chrome|brave|vivaldi|chromium/i.test(v.browser_key || '');
+        api('/api/open-url', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({url: v.url, profile: chromium ? v.profile_folder : ''})})
+          .catch(() => window.open(v.url, '_blank'));
+      };
+    });
   } catch (err) {
     $('adBody').innerHTML = '<span class="err-text">Couldn\'t load activity: ' + err.message + '</span>';
   }
