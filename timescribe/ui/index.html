@@ -397,7 +397,7 @@
   <div class="pane active" data-pane="today">
 
   <div class="card">
-    <h2>Activity
+    <h2>Day
       <button id="dayPrev" title="Previous day" style="margin:0 0 0 8px;padding:4px 10px;font-size:12px">‹</button>
       <input type="date" id="dayPick" style="width:auto;padding:4px 8px;font-size:12px;margin:0 4px">
       <button id="dayNext" title="Next day" style="margin:0 8px 0 0;padding:4px 10px;font-size:12px">›</button>
@@ -407,8 +407,7 @@
       <button id="btnDigest" style="margin:0 0 0 8px;padding:4px 12px;font-size:12px">Run digest</button>
       <button id="btnRebuild" style="margin:0 0 0 4px;padding:4px 12px;font-size:12px;background:#f59e0b" title="Delete this day's digest and unposted drafts, then rebuild from raw activity (posted entries are kept)">Purge &amp; rebuild</button>
     </h2>
-    <div id="sumStrip" style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 10px;font-size:12px;color:var(--muted)"></div>
-    <div id="digestList" style="font-size:13px;line-height:1.7"></div>
+    <div id="sumStrip" style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 0;font-size:12px;color:var(--muted)"></div>
   </div>
 
   <div class="card">
@@ -457,6 +456,13 @@
         <div id="timesheetList" style="font-size:12px"></div>
       </div>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Activity log
+      <span style="font-size:11px;color:var(--muted);margin-left:8px">what happened this day — the digest your drafts are built from</span>
+    </h2>
+    <div id="digestList" style="font-size:13px;line-height:1.7"></div>
   </div>
   </div><!-- /today pane -->
 
@@ -596,7 +602,7 @@ const TS_PRESETS = [
   { name:'Solarized', colors:{ bg:'#fdf6e3', surface:'#eee8d5', text:'#073642', accent:'#268bd2', border:'#d8d0bd', 'input-bg':'#eee8d5', muted:'#657b83', good:'#859900', bad:'#dc322f' } },
   { name:'Forest', colors:{ bg:'#eef3ec', surface:'#dfe9db', text:'#1e2b22', accent:'#3e7d54', border:'#c4d3bd', 'input-bg':'#dfe9db', muted:'#5c6e60', good:'#3e7d54', bad:'#b25a4a' } },
   { name:'Rose', colors:{ bg:'#fdf0f4', surface:'#f6e0e8', text:'#3a1f2b', accent:'#c14d7a', border:'#ecccd7', 'input-bg':'#f6e0e8', muted:'#8a5f6d', good:'#4c7a58', bad:'#b23a56' } },
-  { name:'High contrast', colors:{ bg:'#ffffff', surface:'#f0f0f0', text:'#000000', accent:'#000000', border:'#000000', 'input-bg':'#ffffff', muted:'#444444', good:'#0a6b2e', bad:'#9a1616' } },
+  { name:'High contrast', colors:{ bg:'#000000', surface:'#0d0d0d', text:'#ffffff', accent:'#ffd400', border:'#ffffff', 'input-bg':'#000000', muted:'#d6d6d6', good:'#3ad07a', bad:'#ff5c5c', 'btn-text':'#000000' } },
 ];
 let _appCfg = { ui_font:'', ui_font_custom:'', ui_colors:{} };
 function tsThemeDefaults() { return document.body.classList.contains('dark') ? TS_DARK_DEFAULTS : TS_LIGHT_DEFAULTS; }
@@ -620,10 +626,15 @@ function applyAppFont() {
 }
 function applyAppearance() {
   const colors = _appCfg.ui_colors || {};
-  TS_COLOR_VARS.forEach(([k]) => {
-    if (colors[k]) document.body.style.setProperty('--' + k, colors[k]);
-    else document.body.style.removeProperty('--' + k);
+  // Clear whatever we set last time, then apply the current set. Iterating
+  // the object (not just the known vars) lets presets ship extra vars like
+  // btn-text.
+  (applyAppearance._applied || []).forEach(k => document.body.style.removeProperty('--' + k));
+  const applied = [];
+  Object.keys(colors).forEach(k => {
+    if (colors[k]) { document.body.style.setProperty('--' + k, colors[k]); applied.push(k); }
   });
+  applyAppearance._applied = applied;
   applyAppFont();
 }
 function saveAppearance() {
@@ -708,9 +719,13 @@ try { const c = JSON.parse(localStorage.getItem('ts_appearance') || 'null'); if 
 async function loadAppearance() {
   try {
     const s = await api('/api/status'); const c = s.config || {};
-    _appCfg.ui_font = c.ui_font || '';
-    _appCfg.ui_font_custom = c.ui_font_custom || '';
-    _appCfg.ui_colors = c.ui_colors || {};
+    // Prefer server values, but if the server hasn't stored them yet (e.g.
+    // backend not restarted after an update), keep what we cached locally so
+    // the user's choices don't get wiped on reload.
+    _appCfg.ui_font = c.ui_font || _appCfg.ui_font || '';
+    _appCfg.ui_font_custom = c.ui_font_custom || _appCfg.ui_font_custom || '';
+    _appCfg.ui_colors = (c.ui_colors && Object.keys(c.ui_colors).length)
+      ? c.ui_colors : (_appCfg.ui_colors || {});
     applyAppearance();
   } catch (e) { /* keep cached */ }
   renderPresets(); renderColorGrid(); syncFontUI();
