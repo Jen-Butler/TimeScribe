@@ -60,6 +60,18 @@ DEFAULTS: Dict[str, Any] = {
     "pomo_focus_min": 25,
     "pomo_break_min": 5,
     "pomo_long_min": 15,
+    # --- Appearance (Settings > Appearance) ---
+    # Font family applied to the whole app. "" = default (Barlow). A curated
+    # value like "Georgia, serif" or the literal "custom" (use the uploaded
+    # font). See ui_font_custom.
+    "ui_font": "",
+    # Filename of a user-uploaded font stored under <configdir>/fonts.
+    # Served at /api/font/current and referenced via an injected @font-face.
+    "ui_font_custom": "",
+    # Per-variable colour overrides, keyed WITHOUT the leading dashes, e.g.
+    # {"accent": "#5980a6", "bg": "#f2f2f3"}. Applied on top of the active
+    # light/dark base. {} = no overrides (pure default theme).
+    "ui_colors": {},
 }
 
 

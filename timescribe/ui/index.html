@@ -323,6 +323,41 @@
     <div id="browserMsg" style="font-size:12px;margin-top:6px"></div>
   </div>
 
+  <div class="card" id="appearanceCard">
+    <h2>Appearance
+      <button id="btnResetAppearance" style="margin:0;padding:4px 12px;font-size:12px;background:var(--border);color:var(--text)">Reset to default</button>
+    </h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
+      Make TimeScribe yours — choose a font (or upload your own) and recolour the
+      app. Changes preview instantly and save on their own.</p>
+
+    <label style="display:block;margin:6px 0 4px">Font</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="uiFont" style="width:auto;min-width:190px;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+        <option value="">Barlow (default)</option>
+        <option value="system-ui, sans-serif">System UI</option>
+        <option value="Georgia, serif">Georgia (serif)</option>
+        <option value="'Times New Roman', serif">Times New Roman</option>
+        <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+        <option value="Verdana, sans-serif">Verdana</option>
+        <option value="'Courier New', monospace">Courier New (mono)</option>
+        <option value="'Comic Sans MS', cursive">Comic Sans</option>
+        <option value="custom">Custom (uploaded)…</option>
+      </select>
+      <button type="button" id="btnUploadFont" style="margin:0;padding:6px 12px;font-size:12px;background:var(--border);color:var(--text)">Upload font…</button>
+      <input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2" style="display:none">
+      <span id="fontName" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+
+    <label style="display:block;margin:14px 0 4px">Theme presets</label>
+    <div id="themePresets" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+
+    <label style="display:block;margin:14px 0 4px">Colours</label>
+    <div id="colorGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px 16px"></div>
+
+    <div id="appearanceMsg" style="font-size:12px;margin-top:10px;color:var(--muted)"></div>
+  </div>
+
   <div class="card" id="updateCard">
     <h2>Updates
       <button id="btnCheckUpdate" style="margin:0;padding:4px 12px;font-size:12px">Check for updates</button>
@@ -539,8 +574,148 @@ function applyTheme(mode) {
 }
 $('btnTheme').onclick = () => {
   applyTheme(document.body.classList.contains('dark') ? 'light' : 'dark');
+  if (typeof renderColorGrid === 'function') renderColorGrid();  // refresh picker defaults for the new mode
 };
 try { applyTheme(localStorage.getItem('ts_theme') === 'dark' ? 'dark' : 'light'); } catch (e) { /* ignore */ }
+
+// ---- appearance: font + colours (Settings > Appearance) ----
+const TS_COLOR_VARS = [
+  ['bg','Background'], ['surface','Surface'], ['text','Text'],
+  ['accent','Accent'], ['border','Border'], ['input-bg','Input background'],
+  ['muted','Muted text'], ['good','Success'], ['bad','Error'],
+];
+const TS_LIGHT_DEFAULTS = { bg:'#f2f2f3', surface:'#e9e9ea', text:'#1d1f20',
+  accent:'#5980a6', border:'#cdced0', 'input-bg':'#e9e9ea', muted:'#7f8182',
+  good:'#4c7a58', bad:'#a65959' };
+const TS_DARK_DEFAULTS = { bg:'#191b1d', surface:'#232629', text:'#e6e7e8',
+  accent:'#86a9cc', border:'#43474c', 'input-bg':'#232629', muted:'#9b9d9e',
+  good:'#86b894', bad:'#c98b8b' };
+const TS_PRESETS = [
+  { name:'Blueprint', colors:{} },
+  { name:'Midnight', colors:{ bg:'#0f1720', surface:'#16212e', text:'#dfe8f2', accent:'#5aa9e6', border:'#2a3a4d', 'input-bg':'#16212e', muted:'#8aa0b6', good:'#5fbf8f', bad:'#e0736b' } },
+  { name:'Solarized', colors:{ bg:'#fdf6e3', surface:'#eee8d5', text:'#073642', accent:'#268bd2', border:'#d8d0bd', 'input-bg':'#eee8d5', muted:'#657b83', good:'#859900', bad:'#dc322f' } },
+  { name:'Forest', colors:{ bg:'#eef3ec', surface:'#dfe9db', text:'#1e2b22', accent:'#3e7d54', border:'#c4d3bd', 'input-bg':'#dfe9db', muted:'#5c6e60', good:'#3e7d54', bad:'#b25a4a' } },
+  { name:'Rose', colors:{ bg:'#fdf0f4', surface:'#f6e0e8', text:'#3a1f2b', accent:'#c14d7a', border:'#ecccd7', 'input-bg':'#f6e0e8', muted:'#8a5f6d', good:'#4c7a58', bad:'#b23a56' } },
+  { name:'High contrast', colors:{ bg:'#ffffff', surface:'#f0f0f0', text:'#000000', accent:'#000000', border:'#000000', 'input-bg':'#ffffff', muted:'#444444', good:'#0a6b2e', bad:'#9a1616' } },
+];
+let _appCfg = { ui_font:'', ui_font_custom:'', ui_colors:{} };
+function tsThemeDefaults() { return document.body.classList.contains('dark') ? TS_DARK_DEFAULTS : TS_LIGHT_DEFAULTS; }
+
+function applyAppFont() {
+  const font = _appCfg.ui_font || '', custom = _appCfg.ui_font_custom || '';
+  let st = $('tsCustomFontFace');
+  if (font === 'custom' && custom) {
+    if (!st) { st = document.createElement('style'); st.id = 'tsCustomFontFace'; document.head.appendChild(st); }
+    st.textContent = "@font-face{font-family:'TSCustom';src:url('/api/font/current?v="
+      + encodeURIComponent(custom) + "');font-display:swap}";
+    document.body.style.setProperty('--font-body', "'TSCustom', system-ui, sans-serif");
+    document.body.style.setProperty('--font-heading', "'TSCustom', system-ui, sans-serif");
+  } else if (font) {
+    document.body.style.setProperty('--font-body', font);
+    document.body.style.setProperty('--font-heading', font);
+  } else {
+    document.body.style.removeProperty('--font-body');
+    document.body.style.removeProperty('--font-heading');
+  }
+}
+function applyAppearance() {
+  const colors = _appCfg.ui_colors || {};
+  TS_COLOR_VARS.forEach(([k]) => {
+    if (colors[k]) document.body.style.setProperty('--' + k, colors[k]);
+    else document.body.style.removeProperty('--' + k);
+  });
+  applyAppFont();
+}
+function saveAppearance() {
+  try { localStorage.setItem('ts_appearance', JSON.stringify(_appCfg)); } catch (e) { /* ignore */ }
+  clearTimeout(saveAppearance._t);
+  saveAppearance._t = setTimeout(() => {
+    api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ui_font:_appCfg.ui_font||'', ui_colors:_appCfg.ui_colors||{} })})
+      .then(() => { const m = $('appearanceMsg'); if (m){ m.textContent='Saved.'; setTimeout(()=>{ if(m) m.textContent=''; }, 1500); } })
+      .catch(e => { const m = $('appearanceMsg'); if (m) m.textContent = 'Save failed: ' + e.message; });
+  }, 400);
+}
+function renderColorGrid() {
+  const grid = $('colorGrid'); if (!grid) return;
+  const defs = tsThemeDefaults();
+  grid.innerHTML = '';
+  TS_COLOR_VARS.forEach(([k, label]) => {
+    const cur = (_appCfg.ui_colors && _appCfg.ui_colors[k]) || defs[k] || '#888888';
+    const wrap = document.createElement('label');
+    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--text)';
+    const inp = document.createElement('input');
+    inp.type = 'color'; inp.value = cur;
+    inp.style.cssText = 'width:34px;height:26px;padding:0;border:1px solid var(--border);background:none;cursor:pointer';
+    inp.oninput = () => {
+      _appCfg.ui_colors = _appCfg.ui_colors || {};
+      _appCfg.ui_colors[k] = inp.value;
+      applyAppearance(); saveAppearance();
+    };
+    const span = document.createElement('span'); span.textContent = label;
+    wrap.appendChild(inp); wrap.appendChild(span);
+    grid.appendChild(wrap);
+  });
+}
+function renderPresets() {
+  const box = $('themePresets'); if (!box) return;
+  box.innerHTML = '';
+  TS_PRESETS.forEach(p => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = p.name;
+    b.style.cssText = 'margin:0;padding:5px 12px;font-size:12px;background:var(--border);color:var(--text)';
+    b.onclick = () => {
+      _appCfg.ui_colors = Object.assign({}, p.colors);
+      applyAppearance(); renderColorGrid(); saveAppearance();
+      const m = $('appearanceMsg'); if (m) m.textContent = p.name + ' applied.';
+    };
+    box.appendChild(b);
+  });
+}
+function syncFontUI() {
+  const sel = $('uiFont'); if (sel) sel.value = _appCfg.ui_font || '';
+  const fn = $('fontName');
+  if (fn) fn.textContent = _appCfg.ui_font_custom ? ('Uploaded: ' + _appCfg.ui_font_custom) : '';
+}
+if ($('uiFont')) $('uiFont').onchange = () => {
+  const v = $('uiFont').value;
+  if (v === 'custom' && !_appCfg.ui_font_custom) { $('uiFont').value = _appCfg.ui_font || ''; $('fontFile').click(); return; }
+  _appCfg.ui_font = v; applyAppearance(); saveAppearance();
+};
+if ($('btnUploadFont')) $('btnUploadFont').onclick = () => $('fontFile').click();
+if ($('fontFile')) $('fontFile').onchange = async () => {
+  const f = $('fontFile').files[0]; if (!f) return;
+  const m = $('appearanceMsg'); if (m) m.textContent = 'Uploading font…';
+  try {
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/font/upload', { method:'POST', body: fd });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
+    const j = await r.json();
+    _appCfg.ui_font = 'custom'; _appCfg.ui_font_custom = j.name;
+    applyAppearance(); syncFontUI();
+    try { localStorage.setItem('ts_appearance', JSON.stringify(_appCfg)); } catch (e) {}
+    if (m) m.textContent = 'Font uploaded: ' + j.name;
+  } catch (e) { if (m) m.textContent = 'Upload failed: ' + e.message; }
+  finally { $('fontFile').value = ''; }
+};
+if ($('btnResetAppearance')) $('btnResetAppearance').onclick = () => {
+  _appCfg.ui_colors = {}; _appCfg.ui_font = '';
+  applyAppearance(); renderColorGrid(); syncFontUI(); saveAppearance();
+  const m = $('appearanceMsg'); if (m) m.textContent = 'Reset to default.';
+};
+// Apply cached appearance immediately (no flash), then reconcile from server.
+try { const c = JSON.parse(localStorage.getItem('ts_appearance') || 'null'); if (c) { _appCfg = Object.assign(_appCfg, c); applyAppearance(); } } catch (e) { /* ignore */ }
+async function loadAppearance() {
+  try {
+    const s = await api('/api/status'); const c = s.config || {};
+    _appCfg.ui_font = c.ui_font || '';
+    _appCfg.ui_font_custom = c.ui_font_custom || '';
+    _appCfg.ui_colors = c.ui_colors || {};
+    applyAppearance();
+  } catch (e) { /* keep cached */ }
+  renderPresets(); renderColorGrid(); syncFontUI();
+}
+loadAppearance();
 
 // ---- profile menu / sign out ----
 $('btnProfile').onclick = (ev) => {

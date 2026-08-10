@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -113,6 +113,9 @@ class ConfigUpdate(BaseModel):
     pomo_focus_min: Optional[int] = None
     pomo_break_min: Optional[int] = None
     pomo_long_min: Optional[int] = None
+    ui_font: Optional[str] = None               # font family, "" = default
+    ui_font_custom: Optional[str] = None         # uploaded font filename, "" clears
+    ui_colors: Optional[dict] = None             # {var(no --): value} overrides
 
 
 class SecretUpdate(BaseModel):
@@ -415,6 +418,46 @@ def tickets_mine(refresh: bool = False):
         return {"tickets": a.list_agent_tickets(force=refresh)}
     except Exception as exc:
         raise HTTPException(502, str(exc))
+
+
+_FONT_MIME = {".ttf": "font/ttf", ".otf": "font/otf",
+              ".woff": "font/woff", ".woff2": "font/woff2"}
+
+
+@app.post("/api/font/upload")
+async def font_upload(file: UploadFile = File(...)):
+    """Store a user-uploaded font under <configdir>/fonts and select it.
+    Served back at /api/font/current for an injected @font-face."""
+    import re as _re
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in _FONT_MIME:
+        raise HTTPException(400, "Font must be .ttf, .otf, .woff, or .woff2")
+    data = await file.read()
+    if len(data) > 12 * 1024 * 1024:
+        raise HTTPException(400, "Font file too large (max 12 MB)")
+    safe = _re.sub(r"[^A-Za-z0-9._-]", "_", Path(file.filename).name) or ("custom" + ext)
+    fonts_dir = appconfig._path().parent / "fonts"
+    fonts_dir.mkdir(parents=True, exist_ok=True)
+    (fonts_dir / safe).write_bytes(data)
+    cfg = appconfig.load()
+    cfg["ui_font_custom"] = safe
+    cfg["ui_font"] = "custom"
+    appconfig.save(cfg)
+    return {"ok": True, "name": safe}
+
+
+@app.get("/api/font/current")
+def font_current():
+    """Serve the selected custom font file, if one is uploaded."""
+    from fastapi.responses import FileResponse, Response
+    cfg = appconfig.load()
+    name = cfg.get("ui_font_custom") or ""
+    fonts_root = (appconfig._path().parent / "fonts").resolve()
+    p = (fonts_root / name).resolve()
+    if not name or not str(p).startswith(str(fonts_root)) or not p.exists():
+        return Response(status_code=404)
+    return FileResponse(str(p), media_type=_FONT_MIME.get(p.suffix.lower(),
+                                                          "application/octet-stream"))
 
 
 @app.get("/api/ticket")
