@@ -447,45 +447,65 @@ class HaloPSAAdapter(PSAAdapter):
                           or r.get("status") or ""),
         }
 
-    def search_tickets(self, query: str, limit: int = 20) -> list:
-        """Free-text ticket search (id, client, subject, status) so the user
-        can relink a draft to a ticket the AI didn't pick."""
-        out, seen = [], set()
-
-        # If they typed a ticket number, fetch it directly first.
-        q = query.strip()
-        if q.isdigit():
-            try:
-                t = self._api_get(f"Tickets/{q}")
-                if isinstance(t, dict) and t.get("id"):
-                    row = self._ticket_row(t)
-                    out.append(row); seen.add(row["id"])
-            except Exception as exc:
-                print(f"[halo] direct ticket #{q} lookup failed: {exc}")
-
-        # Free-text search. Halo's /Tickets accepts `search`; ask for enough
-        # rows and don't restrict to open so any ticket is findable.
-        params = {"search": q, "count": limit, "page_size": limit,
-                  "page_no": 1, "pageinate": True, "open_only": False}
+    def _collect_tickets(self, params: dict, out: list, seen: set, limit: int):
+        """Run a /Tickets query and append normalized rows (skipping
+        quick-time entries and dupes)."""
         try:
             raw = self._api_get("Tickets", params=params)
         except Exception as exc:
-            print(f"[halo] ticket search failed: {exc}")
-            return out
+            print(f"[halo] ticket query {params} failed: {exc}")
+            return
         rows = raw.get("tickets") if isinstance(raw, dict) else raw
-        shape = (list(raw.keys())[:10] if isinstance(raw, dict) else f"list[{len(raw or [])}]")
-        print(f"[halo] ticket search '{q}': raw shape={shape}, "
-              f"{len(rows or []) if isinstance(rows, list) else '?'} rows")
+        print(f"[halo] ticket query {params}: {len(rows or []) if isinstance(rows, list) else '?'} rows")
         for r in (rows or []):
             if not isinstance(r, dict) or r.get("id") in seen:
                 continue
             subj = (r.get("summary") or r.get("subject") or "")
             if subj.strip().lower().startswith("quick time"):
-                continue   # auto-created quick-time entries aren't linkable tickets
+                continue
             out.append(self._ticket_row(r)); seen.add(r.get("id"))
             if len(out) >= limit:
-                break
-        return out
+                return
+
+    def search_tickets(self, query: str, limit: int = 25) -> list:
+        """Find tickets by number, summary text, OR client/company name.
+        Halo's ticket `search` only matches summary text, so we also resolve
+        matching clients and pull their tickets."""
+        out, seen = [], set()
+        q = query.strip()
+
+        # 1) Exact ticket number.
+        if q.isdigit():
+            try:
+                t = self._api_get(f"Tickets/{q}")
+                if isinstance(t, dict) and t.get("id"):
+                    out.append(self._ticket_row(t)); seen.add(t.get("id"))
+            except Exception as exc:
+                print(f"[halo] direct ticket #{q} lookup failed: {exc}")
+
+        # 2) Summary text search.
+        self._collect_tickets(
+            {"search": q, "count": limit, "page_size": limit, "page_no": 1,
+             "pageinate": True, "open_only": False}, out, seen, limit)
+
+        # 3) Client/company name -> that client's tickets.
+        if len(out) < limit:
+            try:
+                craw = self._api_get("Client", params={"search": q, "count": 5,
+                                                        "page_size": 5, "pageinate": True})
+                clients = craw.get("clients") if isinstance(craw, dict) else craw
+                cids = [c.get("id") for c in (clients or []) if isinstance(c, dict) and c.get("id")]
+                print(f"[halo] client search '{q}': {len(cids)} client(s) {cids[:5]}")
+                for cid in cids[:5]:
+                    if len(out) >= limit:
+                        break
+                    self._collect_tickets(
+                        {"client_id": cid, "count": limit, "page_size": limit,
+                         "page_no": 1, "pageinate": True, "open_only": False},
+                        out, seen, limit)
+            except Exception as exc:
+                print(f"[halo] client search failed: {exc}")
+        return out[:limit]
 
     def get_ticket(self, ticket_id) -> dict:
         """Fetch one ticket's detail for the timesheet click-through panel."""
