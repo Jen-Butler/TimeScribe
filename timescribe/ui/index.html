@@ -1821,15 +1821,36 @@ async function openActivityDetail(i) {
     svg += `<text x="${W}" y="70" font-size="10" fill="#64748b" text-anchor="end">${$('de'+i).value}</text></svg>`;
 
     // Text breakdown
+    const BROWSER_APP = /msedge|chrome|brave|vivaldi|chromium|firefox/i;
+    const BROWSER_NAME = /(Microsoft Edge|Google Chrome|Brave|Chromium|Mozilla Firefox|Vivaldi)$/i;
+    function browserProfile(app, title) {
+      if (!BROWSER_APP.test(app || '')) return '';
+      const parts = (title || '').split(' - ');
+      if (parts.length >= 2 && BROWSER_NAME.test(parts[parts.length - 1].trim()))
+        return parts[parts.length - 2].trim();   // "... - <profile> - Microsoft Edge"
+      return '';
+    }
+    function cleanTitle(app, title) {
+      // Drop the trailing " - <profile> - <Browser>" so the tag isn't repeated.
+      if (!BROWSER_APP.test(app || '')) return title || '';
+      const parts = (title || '').split(' - ');
+      if (parts.length >= 3 && BROWSER_NAME.test(parts[parts.length - 1].trim()))
+        return parts.slice(0, -2).join(' - ');
+      return title || '';
+    }
     const apps = (r.windows || []).filter(w => ov(w.start, w.end) > 0)
       .map(w => ({ ...w, mins: Math.round(ov(w.start, w.end)) }))
       .sort((a, b) => b.mins - a.mins);
     const vis = (r.visits || []).filter(v => v.t >= s && v.t <= e);
     let html = svg;
     html += `<div style="font-weight:600;margin:6px 0 2px">App focus</div>`;
-    html += apps.length ? apps.map(w =>
-      `<div style="display:flex;gap:8px;font-size:12px;padding:1px 0"><span style="color:var(--accent);min-width:44px">${w.mins}m</span>`
-      + `<span style="min-width:120px">${esc(w.app)}</span><span style="color:var(--muted);flex:1">${esc(w.title)}</span></div>`).join('')
+    html += apps.length ? apps.map(w => {
+      const prof = browserProfile(w.app, w.title);
+      const label = prof ? 'Edge · ' + esc(prof) : esc(w.app);
+      const tag = prof ? `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${tlColor(prof)};margin-right:4px"></span>` : '';
+      return `<div style="display:flex;gap:8px;font-size:12px;padding:1px 0"><span style="color:var(--accent);min-width:44px">${w.mins}m</span>`
+        + `<span style="min-width:150px">${tag}${label}</span><span style="color:var(--muted);flex:1">${esc(cleanTitle(w.app, w.title))}</span></div>`;
+    }).join('')
       : '<div style="color:var(--muted)">No app-focus events in this window.</div>';
     html += `<div style="font-weight:600;margin:10px 0 2px">Browser (${vis.length})</div>`;
     html += vis.length ? vis.map(v =>
