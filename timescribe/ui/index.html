@@ -902,7 +902,7 @@ function draftRow(d, i, nbr) {
       : 'Quick Time (no ticket)';
 
   div.innerHTML = `
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-right:28px">
       ${isPosted ? '' : `<input type="checkbox" class="dsel" data-i="${i}"
              onchange="updateBulkBar()" style="width:auto;margin:0" title="select for bulk action">`}
       <input type="time" value="${d.start_time}" id="ds${i}" ${editable?'':'disabled'}
@@ -948,16 +948,16 @@ function draftRow(d, i, nbr) {
   };
   if (!isPosted) {
     btns.appendChild(mk('Save edits', 'var(--accent)', () => saveDraft(i)));
-    if (d.status !== 'approved')
+    // Approve <-> Unapprove is a single toggle, not two buttons.
+    if (d.status === 'approved')
+      btns.appendChild(mk('Unapprove', '#f59e0b', () => draftAction(i, 'unapprove')));
+    else
       btns.appendChild(mk('Approve', 'var(--good)', () => draftAction(i, 'approve')));
-    if (d.status !== 'rejected')
-      btns.appendChild(mk('Reject', 'var(--bad)', () => draftAction(i, 'reject')));
     btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
     if (nbr.up != null)
       btns.appendChild(mk('⬆ Merge', '#0e7490', () => mergeDraft(i, nbr.up)));
     if (nbr.down != null)
       btns.appendChild(mk('⬇ Merge', '#0e7490', () => mergeDraft(i, nbr.down)));
-    btns.appendChild(mk('Delete', '#64748b', () => deleteDraft(i)));
     btns.appendChild(mk('Ignore', '#7c2d12', () => ignoreDraft(i)));
   } else {
     // Posted entries: editable, then reposted as a fresh Halo action with
@@ -965,6 +965,23 @@ function draftRow(d, i, nbr) {
     btns.appendChild(mk('Repost with edits', 'var(--accent)', () => repostDraft(i)));
   }
   div.appendChild(btns);
+
+  // Corner delete (X). Hidden once approved -- unapprove first to delete.
+  if (!isPosted && d.status !== 'approved') {
+    div.style.position = 'relative';
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.textContent = '✕';
+    x.title = 'Delete this entry';
+    x.style.cssText = 'position:absolute;top:8px;right:8px;margin:0;padding:0;'
+      + 'width:22px;height:22px;line-height:20px;text-align:center;font-size:12px;'
+      + 'background:transparent;color:var(--muted);border:1px solid var(--border);'
+      + 'border-radius:4px;cursor:pointer';
+    x.onmouseenter = () => { x.style.background = 'var(--bad)'; x.style.color = 'var(--btn-text)'; x.style.borderColor = 'var(--bad)'; };
+    x.onmouseleave = () => { x.style.background = 'transparent'; x.style.color = 'var(--muted)'; x.style.borderColor = 'var(--border)'; };
+    x.onclick = () => deleteDraft(i);
+    div.appendChild(x);
+  }
   return div;
 }
 
@@ -990,7 +1007,7 @@ async function mergeDraft(anchorIdx, otherIdx) {
 }
 
 async function ignoreDraft(i) {
-  if (!confirm('Ignore this entry? It will be removed and won\'t come back when the digest re-runs.')) return;
+  // No confirm: ignoring is reversible from the Ignored tab (un-ignore).
   try {
     await api('/api/drafts/ignore?day=' + selDay(), {method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -1240,11 +1257,9 @@ $('selAll').onchange = () => {
 async function bulkAction(action) {
   const idxs = selectedIdxs();
   if (!idxs.length) return;
-  const destructive = action === 'delete' || action === 'ignore';
-  if (destructive && !confirm(
-      (action === 'delete' ? 'Remove ' : 'Ignore ') + idxs.length +
-      ' selected entr' + (idxs.length === 1 ? 'y' : 'ies') + '?' +
-      (action === 'ignore' ? ' They won\'t come back when the digest re-runs.' : ''))) return;
+  // Only deletion confirms; ignore is reversible (un-ignore), so no prompt.
+  if (action === 'delete' && !confirm(
+      'Remove ' + idxs.length + ' selected entr' + (idxs.length === 1 ? 'y' : 'ies') + '?')) return;
   try {
     // Approving locks entries in for posting -- save each selected row's
     // unsaved edits first so they aren't lost (rows on other pages/tabs

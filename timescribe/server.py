@@ -688,9 +688,10 @@ def drafts_get(day: str = None):
 @app.post("/api/drafts/action")
 def drafts_action(body: DraftAction, day: str = None):
     target = _date.fromisoformat(day) if day else _date.today()
-    status = {"approve": "approved", "reject": "rejected"}.get(body.action)
+    status = {"approve": "approved", "reject": "rejected",
+              "unapprove": "draft"}.get(body.action)
     if not status:
-        raise HTTPException(400, "action must be approve or reject")
+        raise HTTPException(400, "action must be approve, unapprove, or reject")
     return _drafts.set_status(target, body.index, status)
 
 
