@@ -583,6 +583,20 @@
   </div>
 </div>
 
+<div id="postOverlay" style="display:none;position:fixed;inset:0;z-index:200;
+     background:rgba(0,0,0,.35);align-items:flex-start;justify-content:center">
+  <div style="margin-top:8vh;width:min(560px,92vw);background:var(--surface,#e9e9ea);
+       border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <strong style="font-size:14px;flex:1">Posting approved entries</strong>
+      <span id="postProgCount" style="font-size:12px;color:var(--muted)"></span>
+      <button type="button" id="postClose" style="margin:0;padding:3px 10px;font-size:12px">✕</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">You can close this — posting keeps going in the background.</div>
+    <div id="postProgList" style="max-height:56vh;overflow:auto;font-size:13px"></div>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
 const api = (path, opts) => fetch(path, opts).then(async r => {
@@ -1409,20 +1423,82 @@ $('btnGenDrafts').onclick = async () => {
   finally { $('btnGenDrafts').disabled = false; $('btnGenDrafts').textContent = 'Import from digest'; }
 };
 
-$('btnPostDrafts').onclick = async () => {
+let _posting = false;
+$('btnPostDrafts').onclick = () => runPosting();
+$('postClose').onclick = () => { $('postOverlay').style.display = 'none'; };
+$('postOverlay').onclick = (e) => { if (e.target === $('postOverlay')) $('postOverlay').style.display = 'none'; };
+
+async function runPosting() {
+  // Already running? Just re-show the modal so they can watch progress.
+  if (_posting) { $('postOverlay').style.display = 'flex'; return; }
+
+  // Snapshot the day + its approved entries NOW, so the run is independent
+  // of any later day-switching or navigation.
+  const day = selDay();
+  let items;
+  try { items = (await api('/api/drafts?day=' + day)).drafts || []; }
+  catch (e) { setMsg2('Post failed: ' + e.message, false); return; }
+  const approved = [];
+  items.forEach((d, i) => { if (d.status === 'approved') approved.push({index: i, d}); });
+  if (!approved.length) {
+    setMsg2('Nothing approved to post — approve some drafts first.', false); return;
+  }
+
+  // Build the progress list.
+  const box = $('postProgList');
+  box.innerHTML = '';
+  const rows = approved.map(a => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border)';
+    const icon = document.createElement('span');
+    icon.textContent = '•';
+    icon.style.cssText = 'min-width:18px;text-align:center;font-size:14px;color:var(--muted)';
+    const label = document.createElement('div');
+    label.style.cssText = 'flex:1;font-size:12px';
+    const tk = a.d.ticket_id ? ('#' + a.d.ticket_id) : 'Quick Time';
+    label.innerHTML = `<strong>${a.d.start_time}–${a.d.end_time}</strong> · ${tk}`
+      + (a.d.client ? ` <span style="color:var(--muted)">${(a.d.client||'').replace(/</g,'&lt;')}</span>` : '')
+      + `<br><span style="color:var(--muted)">${(a.d.note||'').slice(0,90).replace(/</g,'&lt;')}</span>`;
+    const err = document.createElement('div');
+    err.style.cssText = 'font-size:11px;color:var(--bad);margin-top:2px';
+    label.appendChild(err);
+    row.appendChild(icon); row.appendChild(label);
+    box.appendChild(row);
+    return {icon, err};
+  });
+  $('postOverlay').style.display = 'flex';
+
+  _posting = true;
   $('btnPostDrafts').disabled = true;
-  try {
-    const r = await api('/api/drafts/post?day=' + selDay(), {method:'POST'});
-    const ok = r.results.filter(x => x.ok).length;
-    const fail = r.results.filter(x => !x.ok);
-    let msg = `Posted ${ok} entr${ok===1?'y':'ies'}.`;
-    if (r.results.length === 0) msg = 'Nothing approved to post — approve some drafts first.';
-    if (fail.length) msg += ` ${fail.length} failed: ` + (fail[0].error || '').slice(0, 160);
-    setMsg2(msg, fail.length === 0 && r.results.length > 0);
-    loadDrafts(); loadSummary(); loadPosted(); loadTimesheet();
-  } catch (e) { setMsg2('Post failed: ' + e.message, false); }
-  finally { $('btnPostDrafts').disabled = false; }
-};
+  let ok = 0, fail = 0;
+  const upd = () => { $('postProgCount').textContent =
+    `${ok + fail}/${approved.length} · ${ok} ✓` + (fail ? ` · ${fail} ✗` : ''); };
+  upd();
+
+  for (let n = 0; n < approved.length; n++) {
+    rows[n].icon.textContent = '⏳';
+    try {
+      const r = await api('/api/drafts/post-one?day=' + day, {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({index: approved[n].index})});
+      if (r.ok) { rows[n].icon.textContent = '✓'; rows[n].icon.style.color = 'var(--good)'; ok++; }
+      else { rows[n].icon.textContent = '✗'; rows[n].icon.style.color = 'var(--bad)';
+             rows[n].err.textContent = (r.error || 'failed').slice(0, 200); fail++; }
+    } catch (e) {
+      rows[n].icon.textContent = '✗'; rows[n].icon.style.color = 'var(--bad)';
+      rows[n].err.textContent = (e.message || 'failed').slice(0, 200); fail++;
+    }
+    upd();
+  }
+
+  _posting = false;
+  $('btnPostDrafts').disabled = false;
+  setMsg2(`Posted ${ok} entr${ok === 1 ? 'y' : 'ies'}` + (fail ? `, ${fail} failed` : '') + '.',
+          fail === 0);
+  // Refresh the on-screen day view only if we're still on the day we posted.
+  if (selDay() === day) { loadDrafts(); loadSummary(); loadTimesheet(); }
+  loadPosted();
+}
 
 loadDrafts();
 loadTimesheet();

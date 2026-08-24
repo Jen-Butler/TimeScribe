@@ -934,6 +934,35 @@ def drafts_post(day: str = None):
     return {"results": results}
 
 
+class DraftIndex(BaseModel):
+    index: int
+
+
+@app.post("/api/drafts/post-one")
+def drafts_post_one(body: DraftIndex, day: str = None):
+    """Post a SINGLE approved draft by index. Drives the client-side posting
+    modal so each entry can show success/failure as it goes; a bad entry
+    returns ok:false rather than aborting the whole run."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    if not (0 <= body.index < len(items)):
+        raise HTTPException(404, "draft index out of range")
+    item = items[body.index]
+    if item.get("status") == "posted":
+        return {"ok": True, "posted_id": item.get("posted_id"), "already": True}
+    if item.get("status") != "approved":
+        raise HTTPException(400, "draft is not approved")
+    try:
+        posted_id = a.create_time_entry(_entry_from_item(item, target))
+        _drafts.set_status(target, body.index, "posted", posted_id=posted_id)
+        return {"ok": True, "posted_id": posted_id}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _entry_from_item(item: dict, target) -> "_TimeEntry":
     """Build a TimeEntry from a stored draft item, applying the no-charge
     override (chargerate 0, configurable via halo_nocharge_rate) and any
