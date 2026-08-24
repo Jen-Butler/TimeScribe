@@ -472,7 +472,8 @@ def prompts_get():
     from timescribe import prompts as _p
     overrides = appconfig.load().get("prompts") or {}
     return {"prompts": [{"key": k, "label": _p.LABELS[k],
-                         "default": _p.default(k),
+                         "default": _p.editable_default(k),
+                         "locked": _p.locked(k),
                          "value": overrides.get(k, "")}
                         for k in _p.ORDER]}
 
@@ -487,7 +488,7 @@ def prompts_set(body: PromptUpdate):
     cfg = appconfig.load()
     overrides = dict(cfg.get("prompts") or {})
     v = body.value or ""
-    if not v.strip() or v.strip() == _p.default(body.key).strip():
+    if not v.strip() or v.strip() == _p.editable_default(body.key).strip():
         overrides.pop(body.key, None)
     else:
         overrides[body.key] = v

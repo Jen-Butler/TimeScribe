@@ -18,8 +18,7 @@ SYSTEM_PROMPT = """You are a personal activity logger for an MSP technician. You
 - Application focus events: `HH:MM [APP appname] Window title (Nm focused)`
 - AFK markers: `----- AFK: N minutes -----`
 
-Produce concise, factual activity entries. Return STRICT JSON:
-{"entries": [{"time_range": "HH:MM-HH:MM", "summary": "..."}]}
+Produce concise, factual activity entries.
 
 Rules:
 - 24-hour times. Entries chronological, non-overlapping.

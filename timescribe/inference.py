@@ -16,23 +16,6 @@ SYSTEM_PROMPT = """You are a billing assistant for an MSP technician. You receiv
 
 Your job: correlate activity to tickets and draft time entries.
 
-Return STRICT JSON:
-{
-  "drafts": [
-    {
-      "ticket_id": 12647,
-      "start_time": "HH:MM",
-      "end_time": "HH:MM",
-      "note": "Professional first-person-omitted billing note describing the work",
-      "confidence": 0.9,
-      "activity_refs": ["09:15-09:45"]
-    }
-  ],
-  "unmatched": [
-    {"time_range": "HH:MM-HH:MM", "summary": "...", "reason": "no plausible ticket"}
-  ]
-}
-
 Rules:
 - Only draft an entry when the activity plausibly relates to a specific ticket. Client-name match (profile vs ticket client) is strong evidence. Subject-keyword match is strong evidence. Weak guesses go to unmatched instead.
 - Merge adjacent/related digest entries for the same ticket into ONE draft spanning the combined time.
@@ -73,21 +56,6 @@ You receive a raw, timestamped activity feed (browser visits, application
 focus events, AFK markers) AND the technician's open tickets. In ONE pass you
 produce two things: a factual activity digest, and draft time entries that
 correlate that activity to tickets.
-
-Return STRICT JSON:
-{
-  "entries": [
-    {"time_range": "HH:MM-HH:MM", "summary": "past-tense factual activity"}
-  ],
-  "drafts": [
-    {"ticket_id": 12647, "start_time": "HH:MM", "end_time": "HH:MM",
-     "note": "professional billing note", "confidence": 0.9,
-     "activity_refs": ["09:15-09:45"]}
-  ],
-  "unmatched": [
-    {"time_range": "HH:MM-HH:MM", "summary": "...", "reason": "no plausible ticket"}
-  ]
-}
 
 DIGEST rules (entries):
 - 24-hour times, chronological, non-overlapping. Start summaries with a
@@ -393,12 +361,7 @@ Produce draft time entries that FILL THE GAPS, and ONLY the gaps. Rules:
   subject match) or a meeting, attribute it and write a professional note.
   Otherwise ticket_id null (quick time) with a factual note of what the
   activity shows.
-- Round to 5 minutes, minimum 10-minute entries, entries non-overlapping.
-
-Return STRICT JSON:
-{"drafts":[{"ticket_id":123 or null,"start_time":"HH:MM","end_time":"HH:MM",
-  "note":"...","confidence":0.0-1.0,"no_charge":false}],
- "unmatched":[]}"""
+- Round to 5 minutes, minimum 10-minute entries, entries non-overlapping."""
 
 
 def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:

@@ -376,10 +376,10 @@
   <div class="card" id="promptsCard">
     <h2>AI prompts</h2>
     <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
-      These are the instructions sent to the AI for each step. Edit to change
-      tone or rules (e.g. always name the client, house billing style).
-      <strong>Keep the “Return STRICT JSON …” block intact</strong> — the app
-      parses that structure, so removing it will break drafting until you reset.</p>
+      Edit the instructions the AI follows for each step — tone, rules, house
+      billing style (e.g. “always name the client”). The required JSON output
+      format is enforced separately and always appended automatically, so you
+      can’t break drafting no matter what you write here.</p>
 
     <label style="display:block;margin:6px 0 4px">Prompt</label>
     <select id="promptSelect" style="width:auto;min-width:300px;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)"></select>
@@ -388,6 +388,11 @@
       style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border);
              background:var(--input-bg);color:var(--text);font-size:12px;line-height:1.5;
              font-family:ui-monospace,'Cascadia Code',Consolas,monospace;white-space:pre;overflow-wrap:normal;overflow-x:auto"></textarea>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--muted)">🔒 Locked output format (always appended, not editable)</summary>
+      <pre id="promptLocked" style="margin:6px 0 0;padding:10px;border-radius:6px;border:1px dashed var(--border);
+           background:var(--input-bg);color:var(--muted);font-size:11px;line-height:1.5;white-space:pre-wrap;overflow-x:auto"></pre>
+    </details>
     <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
       <button id="btnSavePrompt">Save prompt</button>
       <button id="btnResetPrompt" style="background:var(--border);color:var(--text)">Reset to default</button>
@@ -810,6 +815,7 @@ async function loadPrompts() {
 function showPrompt(idx) {
   const p = _promptDefs[idx]; if (!p) return;
   $('promptText').value = p.value || p.default;
+  $('promptLocked').textContent = p.locked || '';
   $('promptBadge').textContent = p.value
     ? 'Customized — differs from the built-in default.'
     : 'Using the built-in default.';

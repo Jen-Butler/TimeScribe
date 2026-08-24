@@ -1,12 +1,18 @@
 """Central access point for the LLM system prompts.
 
-The default prompt text still lives with the code that uses it
-(digest.py / inference.py) so it stays next to the schemas it must satisfy.
-This module lets the user override any of them from Settings > Prompts: a
-non-empty override in config wins, otherwise the built-in default is used.
+Each prompt has two parts:
 
-Imports of digest/inference are done lazily inside functions to avoid an
-import cycle (those modules import this one at module load).
+* an EDITABLE instructions body (tone, rules, attribution guidance) that the
+  user can change from Settings > Prompts. Its default text lives with the
+  code that uses it (digest.py / inference.py).
+* a LOCKED output-format contract (the STRICT-JSON schema the app parses).
+  This is defined here, is NOT user-editable, and is always appended to
+  whatever body is in effect -- so a user edit can never break JSON parsing.
+
+`get(key)` returns body + locked, which is what actually goes to the model.
+
+digest/inference are imported lazily inside functions to avoid an import
+cycle (those modules import this one at module load).
 """
 from __future__ import annotations
 
@@ -21,8 +27,49 @@ LABELS = {
     "gap_fill": "Timesheet gap fill",
 }
 
+# LOCKED, non-editable output contracts. Always appended to the body.
+FORMATS = {
+    "digest": '{"entries": [{"time_range": "HH:MM-HH:MM", "summary": "..."}]}',
+    "ticket_match": """{
+  "drafts": [
+    {
+      "ticket_id": 12647,
+      "start_time": "HH:MM",
+      "end_time": "HH:MM",
+      "note": "Professional first-person-omitted billing note describing the work",
+      "confidence": 0.9,
+      "activity_refs": ["09:15-09:45"]
+    }
+  ],
+  "unmatched": [
+    {"time_range": "HH:MM-HH:MM", "summary": "...", "reason": "no plausible ticket"}
+  ]
+}""",
+    "combined": """{
+  "entries": [
+    {"time_range": "HH:MM-HH:MM", "summary": "past-tense factual activity"}
+  ],
+  "drafts": [
+    {"ticket_id": 12647, "start_time": "HH:MM", "end_time": "HH:MM",
+     "note": "professional billing note", "confidence": 0.9,
+     "activity_refs": ["09:15-09:45"]}
+  ],
+  "unmatched": [
+    {"time_range": "HH:MM-HH:MM", "summary": "...", "reason": "no plausible ticket"}
+  ]
+}""",
+    "gap_fill": """{"drafts":[{"ticket_id":123 or null,"start_time":"HH:MM","end_time":"HH:MM",
+  "note":"...","confidence":0.0-1.0,"no_charge":false}],
+ "unmatched":[]}""",
+}
 
-def _defaults() -> dict:
+_LOCKED_INTRO = (
+    "OUTPUT FORMAT (system-enforced, not editable): respond with STRICT JSON "
+    "only -- no markdown, no prose outside the JSON -- exactly in this shape:"
+)
+
+
+def _editables() -> dict:
     from timescribe import digest, inference
     return {
         "digest": digest.SYSTEM_PROMPT,
@@ -32,15 +79,24 @@ def _defaults() -> dict:
     }
 
 
-def default(key: str) -> str:
-    """The built-in default prompt for `key`."""
-    return _defaults()[key]
+def editable_default(key: str) -> str:
+    """The built-in EDITABLE body for `key` (no JSON contract)."""
+    return _editables()[key]
 
 
-def get(key: str) -> str:
-    """The effective prompt for `key`: the user's override if set and
-    non-empty, otherwise the built-in default."""
+def locked(key: str) -> str:
+    """The read-only output-format contract appended for `key`."""
+    return f"{_LOCKED_INTRO}\n{FORMATS[key]}"
+
+
+def body(key: str) -> str:
+    """The effective editable body: user override if set, else default."""
     override = (appconfig.load().get("prompts") or {}).get(key)
     if override and override.strip():
         return override
-    return _defaults()[key]
+    return editable_default(key)
+
+
+def get(key: str) -> str:
+    """The full prompt sent to the model: editable body + locked contract."""
+    return f"{body(key)}\n\n{locked(key)}"
