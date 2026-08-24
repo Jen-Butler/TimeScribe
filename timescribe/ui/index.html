@@ -201,6 +201,15 @@
   </nav>
 
   <div class="pane" data-pane="settings">
+  <div id="settingsSubnav" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+    <button class="subtab active-subtab" data-ssec="general" style="margin:0;padding:5px 14px;font-size:12px">General</button>
+    <button class="subtab" data-ssec="browsers" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Browsers</button>
+    <button class="subtab" data-ssec="appearance" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Appearance</button>
+    <button class="subtab" data-ssec="prompts" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Prompts</button>
+    <button class="subtab" data-ssec="system" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">System</button>
+  </div>
+
+  <div class="ssec" data-ssec="general">
   <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
   <div class="card" id="setupCard" style="flex:1 1 380px">
     <h2>Setup</h2>
@@ -306,7 +315,9 @@
     <div id="schedMsg" style="font-size:12px;margin-top:6px"></div>
   </div>
   </div><!-- /settings top row -->
+  </div><!-- /ssec general -->
 
+  <div class="ssec" data-ssec="browsers" style="display:none">
   <div class="card" id="browserCard">
     <h2>Browser sources
       <button id="btnBrowsersRefresh" style="margin:0;padding:4px 12px;font-size:12px">Rescan</button>
@@ -322,7 +333,9 @@
     <button id="btnSaveBrowsers" style="margin-top:12px">Save sources</button>
     <div id="browserMsg" style="font-size:12px;margin-top:6px"></div>
   </div>
+  </div><!-- /ssec browsers -->
 
+  <div class="ssec" data-ssec="appearance" style="display:none">
   <div class="card" id="appearanceCard">
     <h2>Appearance
       <button id="btnResetAppearance" style="margin:0;padding:4px 12px;font-size:12px;background:var(--border);color:var(--text)">Reset to default</button>
@@ -357,7 +370,33 @@
 
     <div id="appearanceMsg" style="font-size:12px;margin-top:10px;color:var(--muted)"></div>
   </div>
+  </div><!-- /ssec appearance -->
 
+  <div class="ssec" data-ssec="prompts" style="display:none">
+  <div class="card" id="promptsCard">
+    <h2>AI prompts</h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
+      These are the instructions sent to the AI for each step. Edit to change
+      tone or rules (e.g. always name the client, house billing style).
+      <strong>Keep the “Return STRICT JSON …” block intact</strong> — the app
+      parses that structure, so removing it will break drafting until you reset.</p>
+
+    <label style="display:block;margin:6px 0 4px">Prompt</label>
+    <select id="promptSelect" style="width:auto;min-width:300px;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)"></select>
+    <div id="promptBadge" style="font-size:11px;color:var(--muted);margin:8px 0 4px"></div>
+    <textarea id="promptText" rows="20" spellcheck="false"
+      style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border);
+             background:var(--input-bg);color:var(--text);font-size:12px;line-height:1.5;
+             font-family:ui-monospace,'Cascadia Code',Consolas,monospace;white-space:pre;overflow-wrap:normal;overflow-x:auto"></textarea>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+      <button id="btnSavePrompt">Save prompt</button>
+      <button id="btnResetPrompt" style="background:var(--border);color:var(--text)">Reset to default</button>
+      <span id="promptMsg" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+  </div>
+  </div><!-- /ssec prompts -->
+
+  <div class="ssec" data-ssec="system" style="display:none">
   <div class="card" id="updateCard">
     <h2>Updates
       <button id="btnCheckUpdate" style="margin:0;padding:4px 12px;font-size:12px">Check for updates</button>
@@ -392,6 +431,7 @@
          border-radius:6px;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;
          color:var(--text)">Click refresh to load.</pre>
   </div>
+  </div><!-- /ssec system -->
   </div><!-- /settings pane (setup) -->
 
   <div class="pane active" data-pane="today">
@@ -731,6 +771,68 @@ async function loadAppearance() {
   renderPresets(); renderColorGrid(); syncFontUI();
 }
 loadAppearance();
+
+// ---- settings subtabs ----
+function showSettingsSection(sec) {
+  document.querySelectorAll('#settingsSubnav button').forEach(b => {
+    const on = b.dataset.ssec === sec;
+    b.classList.toggle('active-subtab', on);
+    b.style.background = on ? 'var(--accent)' : 'var(--border)';
+    b.style.color = on ? 'var(--btn-text)' : 'var(--text)';
+  });
+  document.querySelectorAll('.pane[data-pane="settings"] .ssec').forEach(s => {
+    s.style.display = (s.dataset.ssec === sec) ? '' : 'none';
+  });
+  if (sec === 'prompts') loadPrompts();
+}
+document.querySelectorAll('#settingsSubnav button').forEach(b =>
+  b.onclick = () => showSettingsSection(b.dataset.ssec));
+
+// ---- prompts editor (Settings > Prompts) ----
+let _promptDefs = [];
+async function loadPrompts() {
+  const sel = $('promptSelect');
+  const keep = sel && sel.value ? +sel.value : 0;
+  try {
+    const r = await api('/api/prompts');
+    _promptDefs = r.prompts || [];
+  } catch (e) { $('promptMsg').textContent = 'Load failed: ' + e.message; return; }
+  sel.innerHTML = '';
+  _promptDefs.forEach((p, idx) => {
+    const o = document.createElement('option');
+    o.value = idx;
+    o.textContent = p.label + (p.value ? '  • customized' : '');
+    sel.appendChild(o);
+  });
+  sel.value = String(Math.min(keep, _promptDefs.length - 1));
+  showPrompt(+sel.value);
+}
+function showPrompt(idx) {
+  const p = _promptDefs[idx]; if (!p) return;
+  $('promptText').value = p.value || p.default;
+  $('promptBadge').textContent = p.value
+    ? 'Customized — differs from the built-in default.'
+    : 'Using the built-in default.';
+  $('promptMsg').textContent = '';
+}
+async function savePrompt(value) {
+  const idx = +$('promptSelect').value;
+  const p = _promptDefs[idx]; if (!p) return;
+  try {
+    await api('/api/prompts', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key: p.key, value})});
+    await loadPrompts();
+    $('promptSelect').value = String(idx); showPrompt(idx);
+    $('promptMsg').textContent = value.trim() ? 'Saved.' : 'Reset to default.';
+  } catch (e) { $('promptMsg').textContent = 'Save failed: ' + e.message; }
+}
+if ($('promptSelect')) $('promptSelect').onchange = () => showPrompt(+$('promptSelect').value);
+if ($('btnSavePrompt')) $('btnSavePrompt').onclick = () => savePrompt($('promptText').value);
+if ($('btnResetPrompt')) $('btnResetPrompt').onclick = () => {
+  const p = _promptDefs[+$('promptSelect').value]; if (!p) return;
+  if (!confirm('Reset "' + p.label + '" to the built-in default? Your custom text will be discarded.')) return;
+  savePrompt('');
+};
 
 // ---- profile menu / sign out ----
 $('btnProfile').onclick = (ev) => {

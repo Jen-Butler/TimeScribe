@@ -72,6 +72,10 @@ DEFAULTS: Dict[str, Any] = {
     # {"accent": "#5980a6", "bg": "#f2f2f3"}. Applied on top of the active
     # light/dark base. {} = no overrides (pure default theme).
     "ui_colors": {},
+    # User overrides for the LLM system prompts, keyed by prompt id
+    # (digest | ticket_match | combined | gap_fill). Absent/empty = use the
+    # built-in default. See timescribe/prompts.py.
+    "prompts": {},
 }
 
 

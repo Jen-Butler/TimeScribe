@@ -8,7 +8,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from platformdirs import user_data_dir
-from timescribe import appconfig, history, activitywatch
+from timescribe import appconfig, history, activitywatch, prompts
 from timescribe.llm import generate
 
 APP_NAME = "timescribe"
@@ -152,7 +152,7 @@ def run_digest(target: Optional[date_cls] = None,
         "Produce the JSON described in the system prompt."
     )
 
-    resp = generate(system_prompt=SYSTEM_PROMPT, user_prompt=user_prompt,
+    resp = generate(system_prompt=prompts.get("digest"), user_prompt=user_prompt,
                     schema=EntriesResponse, max_tokens=8000)
     entries = [e.model_dump() for e in resp.entries]
 

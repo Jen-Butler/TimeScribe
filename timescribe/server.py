@@ -460,6 +460,42 @@ def font_current():
                                                           "application/octet-stream"))
 
 
+class PromptUpdate(BaseModel):
+    key: str
+    value: str = ""
+
+
+@app.get("/api/prompts")
+def prompts_get():
+    """List the editable LLM prompts: their default text and any user
+    override (empty string when none)."""
+    from timescribe import prompts as _p
+    overrides = appconfig.load().get("prompts") or {}
+    return {"prompts": [{"key": k, "label": _p.LABELS[k],
+                         "default": _p.default(k),
+                         "value": overrides.get(k, "")}
+                        for k in _p.ORDER]}
+
+
+@app.post("/api/prompts")
+def prompts_set(body: PromptUpdate):
+    """Save (or clear) an override for one prompt. Empty text, or text equal
+    to the default, clears the override so the built-in default is used."""
+    from timescribe import prompts as _p
+    if body.key not in _p.ORDER:
+        raise HTTPException(400, "unknown prompt key")
+    cfg = appconfig.load()
+    overrides = dict(cfg.get("prompts") or {})
+    v = body.value or ""
+    if not v.strip() or v.strip() == _p.default(body.key).strip():
+        overrides.pop(body.key, None)
+    else:
+        overrides[body.key] = v
+    cfg["prompts"] = overrides
+    appconfig.save(cfg)
+    return {"ok": True, "customized": body.key in overrides}
+
+
 @app.get("/api/ticket")
 def ticket_detail(id: int):
     """One ticket's detail, for the timesheet click-through panel."""

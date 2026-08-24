@@ -7,7 +7,7 @@ from datetime import date as date_cls
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
-from timescribe import appconfig, digest as digest_mod, drafts
+from timescribe import appconfig, digest as digest_mod, drafts, prompts
 from timescribe.llm import generate
 
 SYSTEM_PROMPT = """You are a billing assistant for an MSP technician. You receive:
@@ -241,7 +241,7 @@ def build_combined(adapter, target: Optional[date_cls] = None,
     )
 
     resp = generate(
-        system_prompt=COMBINED_SYSTEM_PROMPT, user_prompt=user_prompt,
+        system_prompt=prompts.get("combined"), user_prompt=user_prompt,
         model=_planner_model(cfg),
         max_tokens=8000, schema=CombinedResponse)
 
@@ -322,7 +322,7 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
     )
 
     resp = generate(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=prompts.get("ticket_match"),
         user_prompt=user_prompt,
         model=_planner_model(cfg),
         max_tokens=8000,
@@ -477,7 +477,7 @@ def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
         + "\n\nProduce the JSON described in the system prompt."
     )
 
-    resp = generate(system_prompt=GAPFILL_SYSTEM_PROMPT, user_prompt=user_prompt,
+    resp = generate(system_prompt=prompts.get("gap_fill"), user_prompt=user_prompt,
                     model=_planner_model(cfg), max_tokens=6000,
                     schema=InferenceResponse)
 
