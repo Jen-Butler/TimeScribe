@@ -1031,7 +1031,7 @@ function draftRow(d, i, nbr) {
   const ticketVal = d.ticket_id || '';
   const target = d.ticket_id
       ? `#${d.ticket_id} [${d.client}] ${d.subject}`
-      : 'Quick Time (no ticket)';
+      : 'Quick Time';
   _draftMeta[i] = d.status || 'draft';
 
   div.innerHTML = `
