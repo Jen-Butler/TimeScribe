@@ -1053,7 +1053,6 @@ function draftRow(d, i, nbr) {
               title="View this ticket's info and notes" style="margin:0;padding:3px 8px;font-size:12px">📝</button>
       <button type="button" onclick="openTicketSearch(${i})" ${editable?'':'disabled'}
               title="Search for a ticket to link" style="margin:0;padding:3px 8px;font-size:12px">🔍 Find</button>
-      <span id="dstat${i}" style="color:${statusColor}">${d.status}</span>
       <span style="color:var(--muted);font-size:11px">${conf ? conf + '% confident' : ''}</span>
       <span id="dsave${i}" style="font-size:11px;margin-left:auto"></span>
     </div>
