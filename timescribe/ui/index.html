@@ -1014,40 +1014,42 @@ function draftRow(d, i, nbr) {
   const target = d.ticket_id
       ? `#${d.ticket_id} [${d.client}] ${d.subject}`
       : 'Quick Time (no ticket)';
+  _draftMeta[i] = d.status || 'draft';
 
   div.innerHTML = `
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-right:28px">
       ${isPosted ? '' : `<input type="checkbox" class="dsel" data-i="${i}"
              onchange="updateBulkBar()" style="width:auto;margin:0" title="select for bulk action">`}
       <input type="time" value="${d.start_time}" id="ds${i}" ${editable?'':'disabled'}
-             style="width:auto;padding:3px 6px;font-size:12px">
+             oninput="onDraftEdit(${i})" style="width:auto;padding:3px 6px;font-size:12px">
       <span style="color:var(--muted)">–</span>
       <input type="time" value="${d.end_time}" id="de${i}" ${editable?'':'disabled'}
-             style="width:auto;padding:3px 6px;font-size:12px">
+             oninput="onDraftEdit(${i})" style="width:auto;padding:3px 6px;font-size:12px">
       <button type="button" onclick="openActivityDetail(${i})"
               title="See the captured activity for this time window" style="margin:0;padding:3px 8px;font-size:12px">📊</button>
       <label style="margin:0;font-size:11px">ticket #</label>
       <input value="${ticketVal}" id="dt${i}" placeholder="blank = quick time"
-             list="ticketOptions" ${editable?'':'disabled'}
+             list="ticketOptions" ${editable?'':'disabled'} oninput="onDraftEdit(${i})"
              style="width:110px;padding:3px 6px;font-size:12px">
       <button type="button" onclick="openTicketDetail(${i})"
               title="View this ticket's info and notes" style="margin:0;padding:3px 8px;font-size:12px">📝</button>
       <button type="button" onclick="openTicketSearch(${i})" ${editable?'':'disabled'}
               title="Search for a ticket to link" style="margin:0;padding:3px 8px;font-size:12px">🔍 Find</button>
-      <span style="color:${statusColor}">${d.status}</span>
+      <span id="dstat${i}" style="color:${statusColor}">${d.status}</span>
       <span style="color:var(--muted);font-size:11px">${conf ? conf + '% confident' : ''}</span>
+      <span id="dsave${i}" style="font-size:11px;margin-left:auto"></span>
     </div>
     <div style="color:var(--muted);font-size:11px;margin:3px 0">${target}</div>
-    <textarea id="dn${i}" ${editable?'':'disabled'} rows="2"
+    <textarea id="dn${i}" ${editable?'':'disabled'} rows="2" oninput="onDraftEdit(${i})"
       style="width:100%;margin:4px 0;padding:6px 8px;border-radius:6px;border:1px solid var(--border);
              background:var(--input-bg);color:var(--text);font-size:13px;font-family:inherit">${d.note}</textarea>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:2px 0 4px">
       <label style="margin:0;font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
         <input type="checkbox" id="dnc${i}" ${d.no_charge?'checked':''} ${editable?'':'disabled'}
-               style="width:auto;margin:0"> No charge
+               onchange="onDraftEdit(${i})" style="width:auto;margin:0"> No charge
       </label>
       <input id="dp${i}" value="${(d.private_note||'').replace(/"/g,'&quot;')}"
-             placeholder="private note (agents only)" ${editable?'':'disabled'}
+             placeholder="private note (agents only)" ${editable?'':'disabled'} oninput="onDraftEdit(${i})"
              style="flex:1;min-width:200px;padding:3px 8px;font-size:12px">
     </div>`;
 
@@ -1061,12 +1063,12 @@ function draftRow(d, i, nbr) {
     return b;
   };
   if (!isPosted) {
-    btns.appendChild(mk('Save edits', 'var(--accent)', () => saveDraft(i)));
-    // Approve <-> Unapprove is a single toggle, not two buttons.
-    if (d.status === 'approved')
-      btns.appendChild(mk('Unapprove', '#f59e0b', () => draftAction(i, 'unapprove')));
-    else
-      btns.appendChild(mk('Approve', 'var(--good)', () => draftAction(i, 'approve')));
+    // No Save button: edits autosave. Approve also persists + locks in.
+    // Approve <-> Unapprove is a single toggle.
+    const toggle = mk('', 'var(--good)', null);
+    toggle.id = 'dappr' + i;
+    applyDraftToggle(toggle, i, d.status);
+    btns.appendChild(toggle);
     btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
     if (nbr.up != null)
       btns.appendChild(mk('⬆ Merge', '#0e7490', () => mergeDraft(i, nbr.up)));
@@ -1080,23 +1082,87 @@ function draftRow(d, i, nbr) {
   }
   div.appendChild(btns);
 
-  // Corner delete (X). Hidden once approved -- unapprove first to delete.
-  if (!isPosted && d.status !== 'approved') {
+  // Corner delete (X). Present for all unposted rows but hidden while
+  // approved (unapprove first to delete). setRowStatusUI toggles it live.
+  if (!isPosted) {
     div.style.position = 'relative';
     const x = document.createElement('button');
     x.type = 'button';
+    x.id = 'dx' + i;
     x.textContent = '✕';
     x.title = 'Delete this entry';
     x.style.cssText = 'position:absolute;top:8px;right:8px;margin:0;padding:0;'
       + 'width:22px;height:22px;line-height:20px;text-align:center;font-size:12px;'
       + 'background:transparent;color:var(--muted);border:1px solid var(--border);'
-      + 'border-radius:4px;cursor:pointer';
+      + 'border-radius:4px;cursor:pointer;'
+      + (d.status === 'approved' ? 'display:none' : '');
     x.onmouseenter = () => { x.style.background = 'var(--bad)'; x.style.color = 'var(--btn-text)'; x.style.borderColor = 'var(--bad)'; };
     x.onmouseleave = () => { x.style.background = 'transparent'; x.style.color = 'var(--muted)'; x.style.borderColor = 'var(--border)'; };
     x.onclick = () => deleteDraft(i);
     div.appendChild(x);
   }
   return div;
+}
+
+// Toggle button label/colour/handler for a draft row's Approve<->Unapprove.
+function applyDraftToggle(btn, i, status) {
+  if (status === 'approved') {
+    btn.textContent = 'Unapprove'; btn.style.background = '#f59e0b';
+    btn.onclick = () => draftAction(i, 'unapprove');
+  } else {
+    btn.textContent = 'Approve'; btn.style.background = 'var(--good)';
+    btn.onclick = () => draftAction(i, 'approve');
+  }
+}
+
+// Reflect a status change in a rendered row without a full re-render
+// (keeps focus while typing). Updates status text, toggle, and the X.
+function setRowStatusUI(i, status) {
+  _draftMeta[i] = status;
+  const st = $('dstat' + i);
+  if (st) {
+    st.textContent = status;
+    st.style.color = {draft:'var(--muted)', approved:'var(--good)',
+                      rejected:'var(--bad)', posted:'var(--accent)'}[status] || 'var(--muted)';
+  }
+  const btn = $('dappr' + i);
+  if (btn) applyDraftToggle(btn, i, status);
+  const x = $('dx' + i);
+  if (x) x.style.display = (status === 'approved') ? 'none' : '';
+}
+
+// Per-row edit -> mark saving, auto-unapprove if it was approved, autosave.
+const _draftMeta = {};
+const _saveTimers = {};
+function setSaveState(i, state, msg) {
+  const el = $('dsave' + i);
+  if (!el) return;
+  const map = {
+    dirty:  ['unsaved…',   'var(--muted)'],
+    saving: ['saving…',    'var(--muted)'],
+    saved:  ['saved ✓',    'var(--good)'],
+    error:  ['save failed', 'var(--bad)'],
+  };
+  const [txt, col] = map[state] || ['', 'var(--muted)'];
+  el.textContent = msg ? txt + ' — ' + msg : txt;
+  el.style.color = col;
+  if (state === 'saved') setTimeout(() => { if (el.textContent === 'saved ✓') el.textContent = ''; }, 2500);
+}
+function onDraftEdit(i) {
+  if (_draftMeta[i] === 'posted') return;   // posted rows repost explicitly
+  setSaveState(i, 'dirty');
+  if (_draftMeta[i] === 'approved') setRowStatusUI(i, 'draft');  // edit invalidates approval
+  clearTimeout(_saveTimers[i]);
+  _saveTimers[i] = setTimeout(() => autosaveDraft(i), 700);
+}
+async function autosaveDraft(i) {
+  setSaveState(i, 'saving');
+  try {
+    const item = await persistDraftFields(i);      // server also unapproves if needed
+    if (item && item.status) setRowStatusUI(i, item.status);
+    setSaveState(i, 'saved');
+    loadSummary();                                  // hours may have shifted
+  } catch (e) { setSaveState(i, 'error', e.message); }
 }
 
 async function deleteDraft(i) {
@@ -1231,8 +1297,8 @@ function draftFields(i) {
 // unsaved field changes aren't lost).
 async function persistDraftFields(i) {
   const f = draftFields(i);
-  if (!f) return;
-  await api('/api/drafts/update?day=' + selDay(), {method:'POST',
+  if (!f) return null;
+  return await api('/api/drafts/update?day=' + selDay(), {method:'POST',
     headers:{'Content-Type':'application/json'}, body: JSON.stringify(f)});
 }
 

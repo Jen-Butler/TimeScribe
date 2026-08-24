@@ -886,6 +886,10 @@ def drafts_update(body: DraftUpdate, day: str = None):
     item = items[body.index]
     if item.get("status") == "posted":
         raise HTTPException(400, "cannot edit a posted entry")
+    # Editing invalidates a prior approval: an approved entry drops back to
+    # draft so stale approved text can't be posted without a fresh approve.
+    if item.get("status") == "approved":
+        item["status"] = "draft"
     item["ticket_id"] = body.ticket_id          # explicit None clears it
     if body.note is not None:
         item["note"] = body.note
