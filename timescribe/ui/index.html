@@ -597,6 +597,9 @@
   </div>
 </div>
 
+<div id="toastHost" style="position:fixed;right:16px;bottom:16px;z-index:400;
+     display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none"></div>
+
 <script>
 const $ = id => document.getElementById(id);
 const api = (path, opts) => fetch(path, opts).then(async r => {
@@ -604,14 +607,29 @@ const api = (path, opts) => fetch(path, opts).then(async r => {
   return r.json();
 });
 
-function setMsg(text, ok) {
-  // Mirror to both message slots (Settings card + Today drafts card) so
-  // feedback is visible from whichever tab triggered the action.
-  for (const id of ['msg', 'msg2']) {
-    const el = $(id);
-    if (el) { el.textContent = text; el.className = ok ? 'ok-text' : 'err-text'; }
-  }
+// In-app toast notifications (bottom-right). Auto-dismiss; click to close.
+function showToast(text, ok, ms) {
+  const host = $('toastHost');
+  if (!host) { console.log('[toast]', text); return; }
+  if (!ms) ms = Math.min(9000, Math.max(3000, (text || '').length * 55));
+  const t = document.createElement('div');
+  t.style.cssText = 'pointer-events:auto;max-width:360px;padding:10px 14px;border-radius:8px;'
+    + 'font-size:13px;line-height:1.4;color:var(--btn-text);box-shadow:0 6px 20px rgba(0,0,0,.28);'
+    + 'background:' + (ok === false ? 'var(--bad)' : 'var(--good)') + ';'
+    + 'opacity:0;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease;cursor:pointer';
+  t.textContent = text;
+  host.appendChild(t);
+  requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateY(0)'; });
+  let done = false;
+  const dismiss = () => {
+    if (done) return; done = true;
+    t.style.opacity = '0'; t.style.transform = 'translateY(8px)';
+    setTimeout(() => t.remove(), 220);
+  };
+  t.onclick = dismiss;
+  setTimeout(dismiss, ms);
 }
+function setMsg(text, ok) { showToast(text, ok !== false); }
 
 // ---- blueprint corner marks on every card ----
 document.querySelectorAll('.card').forEach(c => {
@@ -1651,8 +1669,9 @@ $('btnPostedRefresh').onclick = loadPosted;
 loadSummary();
 loadPosted();
 
-// ---- msg helper local to the drafts card ----
-function setMsg2(text, ok) {
+// ---- drafts-card feedback -> in-app toast ----
+function setMsg2(text, ok) { showToast(text, ok !== false); }
+function _setMsg2_unused(text, ok) {
   $('msg2').textContent = text;
   $('msg2').className = ok ? 'ok-text' : 'err-text';
 }
