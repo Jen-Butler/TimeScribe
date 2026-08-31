@@ -123,6 +123,9 @@ def _run_eod_safe(notify: Optional[Callable[[str, str], None]]) -> None:
         a = get_adapter()
         if a is None or not a.is_authenticated():
             _run_digest_safe()      # digest-only; nothing to match against
+            # Mark EOD done for today even without Halo, so the loop doesn't
+            # re-run every 60s and spam this nudge -- notify exactly once.
+            _state["last_eod"] = date_cls.today()
             if notify:
                 notify("TimeScribe", "Day digested - connect Halo to draft time entries.")
             return
