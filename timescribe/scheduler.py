@@ -89,7 +89,7 @@ def _run_digest_safe() -> bool:
                 adapter = None
         if combined and adapter is not None and adapter.is_authenticated():
             from timescribe import inference
-            inference.build_combined(adapter, date_cls.today())
+            inference.build_combined(adapter, date_cls.today(), replace_drafts=False)
         else:
             from timescribe import digest
             digest.run_digest(date_cls.today())     # full day so far, replace
@@ -132,7 +132,7 @@ def _run_eod_safe(notify: Optional[Callable[[str, str], None]]) -> None:
         # Combined mode already builds matched drafts in _run_digest_safe;
         # otherwise do the classic digest-then-match at EOD.
         if cfg.get("combined_digest_drafts", True):
-            result = inference.build_combined(a, date_cls.today())
+            result = inference.build_combined(a, date_cls.today(), replace_drafts=False)
         else:
             _run_digest_safe()
             result = inference.generate_drafts(a, date_cls.today())

@@ -122,7 +122,7 @@ def _planner_model(cfg: dict) -> str:
 
 
 def build_combined(adapter, target: Optional[date_cls] = None,
-                   since=None, until=None) -> dict:
+                   since=None, until=None, replace_drafts: bool = True) -> dict:
     """One LLM call: raw signal feed + open tickets -> digest entries AND
     ticket-matched drafts. Persists the digest and the drafts (replacing
     unposted drafts, preserving posted). Saves the double-send of feeding
@@ -216,6 +216,19 @@ def build_combined(adapter, target: Optional[date_cls] = None,
     # Persist the digest so the digest list + timeline still work.
     digest_mod.save_digest(target, resp.entries)
 
+    existing = drafts.load(target)
+    posted = [x for x in existing if x.get("status") == "posted"]
+    unposted = [x for x in existing if x.get("status") != "posted"]
+    # Automatic passes (scheduler) MUST NOT disturb drafts you're already
+    # working on. Only an explicit rebuild (replace_drafts=True) may replace
+    # them. If unposted drafts already exist, refresh the digest only.
+    if unposted and not replace_drafts:
+        print(f"[combined] {len(unposted)} existing drafts left untouched; "
+              "digest refreshed only")
+        return {"entries": resp.entries, "drafts": unposted,
+                "unmatched": [u.model_dump() for u in resp.unmatched],
+                "preserved_posted": len(posted)}
+
     tmap = {t.id: t for t in tickets}
     new_items = []
     for d in resp.drafts:
@@ -235,8 +248,6 @@ def build_combined(adapter, target: Optional[date_cls] = None,
             "subject": f"(unmatched: {u.reason})" if u.reason else "(unmatched)",
             "status": "draft"})
 
-    existing = drafts.load(target)
-    posted = [x for x in existing if x.get("status") == "posted"]
     new_items = drafts.filter_ignored(target, new_items)
     new_items = drafts.filter_covered(new_items, covered)   # hard backstop
     drafts.save(target, posted + new_items)

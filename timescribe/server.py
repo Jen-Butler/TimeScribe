@@ -556,20 +556,24 @@ def digest_rebuild(day: str = None):
     always preserved."""
     from timescribe import drafts as _dr, inference as _inf
     target = _date.fromisoformat(day) if day else _date.today()
-    _digest.delete_digest(target)
     existing = _dr.load(target)
     posted = [x for x in existing if x.get("status") == "posted"]
-    _dr.save(target, posted)
+    # IMPORTANT: don't purge the digest or drafts until the rebuild actually
+    # succeeds. Both paths below replace the day's digest (and build_combined
+    # replaces unposted drafts, keeping posted) only on success -- so a
+    # failure (e.g. AI credits exhausted) leaves the existing day untouched
+    # instead of wiping it.
     try:
         cfg = appconfig.load()
         a = get_adapter()
         if (cfg.get("combined_digest_drafts", True)
                 and a is not None and a.is_authenticated()):
-            result = _inf.build_combined(a, target)
+            result = _inf.build_combined(a, target, replace_drafts=True)  # explicit rebuild
             entries = [e.model_dump() if hasattr(e, "model_dump") else e
                        for e in result.get("entries", [])]
         else:
-            entries = _digest.run_digest(target)
+            entries = _digest.run_digest(target)     # full-day: replaces digest
+            _dr.save(target, posted)                 # drop unposted only after success
         return {"ok": True, "count": len(entries), "entries": entries,
                 "preserved_posted": len(posted)}
     except Exception as exc:

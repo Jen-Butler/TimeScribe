@@ -2,6 +2,8 @@
 draft -> approved/rejected -> posted."""
 from __future__ import annotations
 import json
+import os
+import shutil
 from datetime import date as date_cls, timedelta
 from pathlib import Path
 from typing import List, Optional
@@ -27,12 +29,49 @@ def load(d: date_cls) -> List[dict]:
         return []
     try:
         return json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        # A corrupt file must NOT be treated as "no drafts" -- that would let
+        # the next save overwrite recoverable data for good. Preserve it and
+        # fall back to the last good backup if we have one.
+        print(f"[drafts] {p.name} unreadable ({exc}); trying backup")
+        try:
+            p.replace(p.with_name(p.name + ".corrupt"))
+        except OSError:
+            pass
+        bak = p.with_name(p.name + ".bak")
+        if bak.exists():
+            try:
+                return json.loads(bak.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
         return []
 
 
 def save(d: date_cls, items: List[dict]) -> None:
-    _path(d).write_text(json.dumps(items, indent=2), encoding="utf-8")
+    """Persist the day's drafts. Atomic (temp file + os.replace so a crash
+    mid-write can't truncate the file) and keeps the previous version as a
+    .bak so an accidental wipe/replace is always recoverable."""
+    p = _path(d)
+    try:
+        if p.exists() and p.stat().st_size > 0:
+            shutil.copy2(p, p.with_name(p.name + ".bak"))
+    except OSError:
+        pass
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps(items, indent=2), encoding="utf-8")
+    os.replace(tmp, p)
+
+
+def restore_backup(d: date_cls) -> List[dict]:
+    """Recover a day's drafts from its .bak (the version before the last
+    save). Promotes the backup to the live file and returns it."""
+    p = _path(d)
+    bak = p.with_name(p.name + ".bak")
+    if not bak.exists():
+        return []
+    items = json.loads(bak.read_text(encoding="utf-8"))
+    save(d, items)
+    return items
 
 
 def set_status(d: date_cls, index: int, status: str,
