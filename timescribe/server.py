@@ -144,6 +144,7 @@ def status():
         "openai_key_set": appconfig.get_secret("openai_api_key") is not None,
         "org_ai_key_set": appconfig.get_secret("org_ai_key") is not None,
         "llm_provider": cfg.get("llm_provider", "anthropic"),
+        "ai_health": __import__("timescribe.llm", fromlist=["ai_health"]).ai_health(),
         "config": {k: v for k, v in cfg.items() if "key" not in k.lower()},
     }
 

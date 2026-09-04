@@ -14,6 +14,35 @@ from pydantic import BaseModel, ValidationError
 from timescribe import appconfig
 
 
+# --- AI health: last-known provider status, surfaced in Settings so a low
+# credit balance / billing failure is visible instead of silently failing.
+# (Anthropic/OpenAI don't expose a live balance to an API key, so we report
+# the last call's outcome and flag the specific "out of credit" error.) ---
+_ai_health = {"ok": True, "error": None, "provider": None, "billing": False,
+              "at": None}
+
+
+def ai_health() -> dict:
+    return dict(_ai_health)
+
+
+def _is_billing_error(msg: str) -> bool:
+    m = (msg or "").lower()
+    return any(s in m for s in (
+        "credit balance is too low", "insufficient", "billing", "quota",
+        "payment", "current quota", "402"))
+
+
+def _mark_ai_ok(provider: str) -> None:
+    _ai_health.update(ok=True, error=None, provider=provider, billing=False,
+                      at=time.time())
+
+
+def _mark_ai_error(provider: str, exc: Exception) -> None:
+    _ai_health.update(ok=False, error=str(exc)[:300], provider=provider,
+                      billing=_is_billing_error(str(exc)), at=time.time())
+
+
 def _resolve(model: Optional[str]) -> Tuple[str, str]:
     """Return (provider, model) honoring config + per-call override.
     'halo_org' resolves to its underlying provider (the org key's provider)."""
@@ -97,6 +126,7 @@ def generate(*, system_prompt: str, user_prompt: str,
     for attempt in range(retries + 1):
         try:
             text = call(system_prompt, messages, model, temperature, max_tokens)
+            _mark_ai_ok(provider)
             if schema is None:
                 return text
             try:
@@ -120,4 +150,5 @@ def generate(*, system_prompt: str, user_prompt: str,
                 time.sleep(2)
                 continue
             break
+    _mark_ai_error(provider, last_exc)
     raise RuntimeError(f"{provider} call failed: {last_exc!r}")

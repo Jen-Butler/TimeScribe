@@ -917,6 +917,19 @@ async function refreshStatus() {
       ((s.llm_provider === 'openai' ? s.openai_key_set : s.anthropic_key_set) ? 'set' : 'missing');
     $('pillKey').className = 'pill ' +
       ((s.llm_provider === 'openai' ? s.openai_key_set : s.anthropic_key_set) ? 'ok' : 'err');
+    // AI health: if the last AI call failed on credits/billing, warn loudly.
+    const ah = s.ai_health;
+    if (ah && !ah.ok) {
+      $('pillKey').className = 'pill err';
+      $('pillKey').textContent = ah.billing ? 'AI credits: exhausted — top up'
+                                             : 'AI: last call failed';
+      if (ah.billing && window._aiBillingAt !== ah.at) {
+        window._aiBillingAt = ah.at;
+        showToast('AI is out of credits (' + (ah.provider || 'provider') +
+          ') — digests and ticket-matching are paused until you top up. ' +
+          'Your drafts are safe; editing and posting still work.', false, 9000);
+      }
+    }
   } catch (e) { setMsg('Status check failed: ' + e.message, false); }
 }
 
