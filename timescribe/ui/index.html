@@ -452,6 +452,7 @@
     <h2>Draft time entries
       <button id="btnGenDrafts" style="margin:0;padding:4px 12px;font-size:12px">Import from digest</button>
       <button id="btnSuggest" style="margin:0;padding:4px 12px;font-size:12px" title="Optional AI pass: matches entries to tickets (uses your API key)">AI ticket match</button>
+      <button id="btnRebuildDigest" style="margin:0;padding:4px 12px;font-size:12px" title="Rebuild this day's drafts from the existing digest (ticket-matched), without regenerating the digest">Rebuild from digest</button>
       <button id="btnFillGaps" style="margin:0;padding:4px 12px;font-size:12px" title="Find uncovered windows on the Halo timesheet and suggest factual entries from activity to fill them">Fill timesheet gaps</button>
       <button id="btnAddManual" style="margin:0;padding:4px 12px;font-size:12px;background:#a78bfa" title="Add a blank entry to fill in by hand">Add manual entry</button>
       <button id="btnPostDrafts" style="margin:0;padding:4px 12px;font-size:12px;background:var(--good)">Post approved</button>
@@ -1711,6 +1712,19 @@ $('btnSuggest').onclick = async () => {
   finally { $('btnSuggest').disabled = false; $('btnSuggest').textContent = 'AI ticket match'; }
 };
 
+$('btnRebuildDigest').onclick = async () => {
+  if (!confirm('Rebuild this day\'s drafts from the current digest? Your unposted '
+    + 'drafts will be replaced (posted entries are kept). The digest itself is not regenerated.')) return;
+  $('btnRebuildDigest').disabled = true; $('btnRebuildDigest').textContent = 'Rebuilding…';
+  try {
+    const r = await api('/api/drafts/rebuild-from-digest?day=' + selDay(), {method:'POST'});
+    if (r.error) setMsg2(r.error, false);
+    else setMsg2('Rebuilt ' + r.drafts.length + ' draft(s) from the digest.', true);
+    loadDrafts(); loadSummary();
+  } catch (e) { setMsg2('Rebuild failed: ' + e.message, false); }
+  finally { $('btnRebuildDigest').disabled = false; $('btnRebuildDigest').textContent = 'Rebuild from digest'; }
+};
+
 $('btnFillGaps').onclick = async () => {
   $('btnFillGaps').disabled = true; $('btnFillGaps').textContent = 'Filling…';
   try {
@@ -1731,7 +1745,7 @@ function applyProviderUI() {
   $('orgAiRow').style.display       = (p === 'halo_org') ? '' : 'none';
   $('mcpOnlyNote').style.display    = (p === 'mcp') ? '' : 'none';
   const aiDisabled = (p === 'mcp');
-  for (const id of ['btnDigest', 'btnSuggest', 'btnFillGaps']) {
+  for (const id of ['btnDigest', 'btnSuggest', 'btnRebuildDigest', 'btnFillGaps']) {
     $(id).disabled = aiDisabled;
     $(id).title = aiDisabled ? 'Disabled in MCP-only mode (no API key)' : '';
   }

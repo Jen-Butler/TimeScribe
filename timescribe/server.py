@@ -670,6 +670,25 @@ def drafts_suggest(day: str = None):
         raise HTTPException(500, str(exc))
 
 
+@app.post("/api/drafts/rebuild-from-digest")
+def drafts_rebuild_from_digest(day: str = None):
+    """Rebuild the day's drafts from the EXISTING digest -- ticket-matched in
+    one LLM pass, WITHOUT regenerating the digest (unlike Purge & rebuild).
+    Explicit action, so it replaces the current unposted drafts (posted are
+    kept). Errors if there's no digest yet."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    if not _digest.load_digest(target):
+        return {"drafts": [], "error": "No digest for this day yet — run the "
+                "digest first, or use Purge & rebuild."}
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    try:
+        return _inference.generate_drafts(a, target)
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 @app.post("/api/drafts/add")
 def drafts_add(day: str = None):
     """Add a blank manual draft (works in every mode, incl. MCP-only)."""
