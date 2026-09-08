@@ -654,28 +654,10 @@ def drafts_fill_gaps(day: str = None):
 
 @app.post("/api/drafts/suggest")
 def drafts_suggest(day: str = None):
-    """AI pass: raw activity + open tickets -> digest + ticket-matched
-    drafts in one combined LLM call (refreshes both). Falls back to the
-    classic digest-then-match if combined mode is disabled."""
-    a = get_adapter()
-    if a is None or not a.is_authenticated():
-        raise HTTPException(401, "Halo not connected")
-    target = _date.fromisoformat(day) if day else _date.today()
-    cfg = appconfig.load()
-    try:
-        if cfg.get("combined_digest_drafts", True):
-            return _inference.build_combined(a, target)
-        return _inference.generate_drafts(a, target)
-    except Exception as exc:
-        raise HTTPException(500, str(exc))
-
-
-@app.post("/api/drafts/rebuild-from-digest")
-def drafts_rebuild_from_digest(day: str = None):
-    """Rebuild the day's drafts from the EXISTING digest -- ticket-matched in
-    one LLM pass, WITHOUT regenerating the digest (unlike Purge & rebuild).
-    Explicit action, so it replaces the current unposted drafts (posted are
-    kept). Errors if there's no digest yet."""
+    """AI ticket match: rebuild the day's drafts from the EXISTING digest,
+    ticket-matched in one LLM pass -- WITHOUT regenerating the digest (that's
+    Purge & rebuild's job). Explicit action, so it replaces the current
+    unposted drafts (posted are kept). Errors if there's no digest yet."""
     target = _date.fromisoformat(day) if day else _date.today()
     if not _digest.load_digest(target):
         return {"drafts": [], "error": "No digest for this day yet — run the "
