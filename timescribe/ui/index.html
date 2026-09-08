@@ -2374,9 +2374,12 @@ async function openActivityDetail(i) {
         return parts.slice(0, -2).join(' - ');
       return title || '';
     }
+    const fmtClk = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+    // Chronological -- the order the apps were actually focused (like the
+    // browser list), NOT sorted by duration.
     const apps = (r.windows || []).filter(w => ov(w.start, w.end) > 0)
       .map(w => ({ ...w, mins: Math.round(ov(w.start, w.end)) }))
-      .sort((a, b) => b.mins - a.mins);
+      .sort((a, b) => a.start - b.start);
     const vis = (r.visits || []).filter(v => v.t >= s && v.t <= e);
     let html = svg;
     html += `<div style="font-weight:600;margin:6px 0 2px">App focus</div>`;
@@ -2384,8 +2387,11 @@ async function openActivityDetail(i) {
       const prof = browserProfile(w.app, w.title);
       const label = prof ? 'Edge · ' + esc(prof) : esc(w.app);
       const tag = prof ? `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${tlColor(prof)};margin-right:4px"></span>` : '';
-      return `<div style="display:flex;gap:8px;font-size:12px;padding:1px 0"><span style="color:var(--accent);min-width:44px">${w.mins}m</span>`
-        + `<span style="min-width:150px">${tag}${label}</span><span style="color:var(--muted);flex:1">${esc(cleanTitle(w.app, w.title))}</span></div>`;
+      return `<div style="display:flex;gap:8px;font-size:12px;padding:1px 0">`
+        + `<span style="color:var(--muted);min-width:40px">${fmtClk(Math.max(s, w.start))}</span>`
+        + `<span style="color:var(--accent);min-width:32px">${w.mins}m</span>`
+        + `<span style="min-width:150px">${tag}${label}</span>`
+        + `<span style="color:var(--muted);flex:1">${esc(cleanTitle(w.app, w.title))}</span></div>`;
     }).join('')
       : '<div style="color:var(--muted)">No app-focus events in this window.</div>';
     html += `<div style="font-weight:600;margin:10px 0 2px">Browser (${vis.length})</div>`;
