@@ -102,15 +102,28 @@ def _call_openai(system_prompt, messages, model, temperature, max_tokens) -> str
 
 
 def _strip_fences(text: str) -> str:
-    """Models often wrap JSON in ```json ... ``` fences despite instructions.
-    Strip a leading/trailing fence pair if present."""
-    t = text.strip()
+    """Return just the JSON payload from a model response. Models sometimes
+    wrap JSON in ```json ... ``` fences or add a line of prose despite
+    instructions, so: strip a fenced block, then fall back to the outermost
+    {...} / [...] span. Robust to trailing prose after the closing fence."""
+    t = (text or "").strip()
+    # 1) Remove a leading ```lang line and the matching trailing ``` fence.
     if t.startswith("```"):
-        first_nl = t.find("\n")
-        if first_nl != -1:
-            t = t[first_nl + 1:]
-        if t.rstrip().endswith("```"):
-            t = t.rstrip()[:-3]
+        nl = t.find("\n")
+        t = t[nl + 1:] if nl != -1 else t[3:]
+        end = t.rfind("```")
+        if end != -1:
+            t = t[:end]
+        t = t.strip()
+    # 2) If prose remains around it, carve out the outermost JSON object/array.
+    if t and t[0] not in "{[":
+        starts = [i for i in (t.find("{"), t.find("[")) if i != -1]
+        if starts:
+            t = t[min(starts):]
+    if t and t[-1] not in "}]":
+        ends = [i for i in (t.rfind("}"), t.rfind("]")) if i != -1]
+        if ends:
+            t = t[:max(ends) + 1]
     return t.strip()
 
 

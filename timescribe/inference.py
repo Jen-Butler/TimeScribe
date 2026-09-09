@@ -218,16 +218,6 @@ def build_combined(adapter, target: Optional[date_cls] = None,
 
     existing = drafts.load(target)
     posted = [x for x in existing if x.get("status") == "posted"]
-    unposted = [x for x in existing if x.get("status") != "posted"]
-    # Automatic passes (scheduler) MUST NOT disturb drafts you're already
-    # working on. Only an explicit rebuild (replace_drafts=True) may replace
-    # them. If unposted drafts already exist, refresh the digest only.
-    if unposted and not replace_drafts:
-        print(f"[combined] {len(unposted)} existing drafts left untouched; "
-              "digest refreshed only")
-        return {"entries": resp.entries, "drafts": unposted,
-                "unmatched": [u.model_dump() for u in resp.unmatched],
-                "preserved_posted": len(posted)}
 
     tmap = {t.id: t for t in tickets}
     new_items = []
@@ -247,8 +237,29 @@ def build_combined(adapter, target: Optional[date_cls] = None,
             "activity_refs": [u.time_range], "client": "",
             "subject": f"(unmatched: {u.reason})" if u.reason else "(unmatched)",
             "status": "draft"})
-
     new_items = drafts.filter_ignored(target, new_items)
+
+    if not replace_drafts:
+        # Automatic passes are ADDITIVE: never modify or remove existing
+        # drafts (you may be curating them). Only ADD drafts for windows not
+        # already covered by an existing draft (any status) or by logged
+        # time, so new activity through the day still produces drafts.
+        occupied = list(covered)
+        for x in existing:
+            s2 = drafts._hm_to_min(x.get("start_time"))
+            e2 = drafts._hm_to_min(x.get("end_time"))
+            if s2 is not None and e2 is not None and e2 > s2:
+                occupied.append((s2, e2))
+        additions = drafts.filter_covered(new_items, occupied)
+        if additions:
+            drafts.save(target, existing + additions)
+        print(f"[combined] additive: {len(existing)} existing kept, "
+              f"{len(additions)} added")
+        return {"entries": resp.entries, "drafts": existing + additions,
+                "unmatched": [u.model_dump() for u in resp.unmatched],
+                "preserved_posted": len(posted)}
+
+    # Explicit rebuild: replace unposted drafts (posted are kept).
     new_items = drafts.filter_covered(new_items, covered)   # hard backstop
     drafts.save(target, posted + new_items)
     print(f"[combined] {len(resp.entries)} digest entries, "
