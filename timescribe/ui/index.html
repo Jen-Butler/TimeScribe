@@ -178,6 +178,7 @@
       <span class="pill" id="pillKey">Anthropic key: checking…</span>
       <span class="pill" id="pillAW">ActivityWatch: checking…</span>
       <span class="pill" id="pillSched"></span>
+      <span class="pill" id="pillShots" style="display:none" title="Local screenshot recorder is capturing (Settings › Screenshots to pause)"></span>
       <span id="pomoBar" style="margin-left:auto;display:flex;align-items:center;gap:6px" title="Pomodoro">
         <select id="pomoMode" style="padding:3px 6px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
           <option value="focus">Focus</option>
@@ -197,6 +198,7 @@
     <button data-tab="today" class="active">Today</button>
     <button data-tab="timeline">Timeline</button>
     <button data-tab="history">History</button>
+    <button data-tab="shots">Screenshots</button>
     <button data-tab="settings">Settings</button>
   </nav>
 
@@ -206,6 +208,7 @@
     <button class="subtab" data-ssec="browsers" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Browsers</button>
     <button class="subtab" data-ssec="appearance" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Appearance</button>
     <button class="subtab" data-ssec="prompts" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Prompts</button>
+    <button class="subtab" data-ssec="screenshots" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Screenshots</button>
     <button class="subtab" data-ssec="system" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">System</button>
   </div>
 
@@ -394,6 +397,54 @@
   </div>
   </div><!-- /ssec prompts -->
 
+  <div class="ssec" data-ssec="screenshots" style="display:none">
+  <div class="card" id="screenshotsCard">
+    <h2>Screenshots
+      <span id="shotsPill" style="font-size:11px;font-weight:400;color:var(--muted);margin-left:8px"></span>
+    </h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
+      Records what was on screen so you can review a time entry later, like
+      Steps Recorder. Captures when you switch windows and every few minutes
+      while you're active; nothing while idle or locked, and never the
+      dashboard itself. <strong>Everything stays on this machine</strong> —
+      screenshots are never sent to Halo or anywhere else.</p>
+
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin:6px 0">
+      <input type="checkbox" id="shotsEnabled" style="width:auto;margin:0"> Enable screenshot recording
+    </label>
+
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+      <label style="margin:0;font-size:12px;color:var(--muted)">Periodic shot every
+        <select id="shotsInterval" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+          <option value="1">1 min</option>
+          <option value="2">2 min</option>
+          <option value="5">5 min</option>
+          <option value="10">10 min</option>
+        </select></label>
+      <label style="margin:0;font-size:12px;color:var(--muted)">Keep for
+        <select id="shotsRetention" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+          <option value="3">3 days</option>
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+          <option value="60">60 days</option>
+        </select></label>
+    </div>
+
+    <label style="display:block;margin:12px 0 4px">Never capture these apps <span style="color:var(--muted)">(exe names, comma-separated — e.g. a password manager)</span></label>
+    <input id="shotsExclude" placeholder="KeePass.exe, 1Password.exe" style="font-size:13px">
+
+    <div id="shotsStats" style="font-size:12px;color:var(--muted);margin-top:12px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button id="btnShotsSave" style="margin:0;padding:6px 14px;font-size:12px">Save</button>
+      <button id="btnShotsPause" style="margin:0;padding:6px 14px;font-size:12px;background:var(--border);color:var(--text)">Pause capture</button>
+      <button id="btnShotsPurgeOld" style="margin:0;padding:6px 14px;font-size:12px;background:var(--border);color:var(--text)">Purge older than retention</button>
+      <button id="btnShotsPurgeAll" style="margin:0;padding:6px 14px;font-size:12px;background:var(--bad)">Delete all screenshots</button>
+    </div>
+    <div id="shotsMsg" style="font-size:12px;margin-top:6px;color:var(--muted)"></div>
+  </div>
+  </div><!-- /ssec screenshots -->
+
   <div class="ssec" data-ssec="system" style="display:none">
   <div class="card" id="updateCard">
     <h2>Updates
@@ -529,6 +580,19 @@
   </div>
   </div><!-- /history pane -->
 
+  <div class="pane" data-pane="shots">
+  <div class="card">
+    <h2>Screenshots
+      <button id="btnShotsDayRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
+      <span id="shotsDayMeta" style="font-size:11px;color:var(--muted);margin-left:8px"></span>
+    </h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
+      What was on screen through the selected day (from the Today date picker), in order.
+      Click any shot to enlarge; use ‹ › to step through. Stored locally only.</p>
+    <div id="shotsDayGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
+  </div>
+  </div><!-- /shots pane -->
+
   <div class="pane" data-pane="settings">
   <div class="card">
     <h2>Claude / MCP integration</h2>
@@ -602,6 +666,17 @@
     <div style="font-size:11px;color:var(--muted);margin-bottom:10px">You can close this — posting keeps going in the background.</div>
     <div id="postProgList" style="max-height:56vh;overflow:auto;font-size:13px"></div>
   </div>
+</div>
+
+<div id="lightbox" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.82);
+     align-items:center;justify-content:center;flex-direction:column;gap:8px">
+  <div style="display:flex;gap:10px;align-items:center;color:#eee;font-size:13px;max-width:92vw">
+    <button type="button" id="lbPrev" style="margin:0;padding:4px 12px;font-size:14px">‹</button>
+    <span id="lbCaption" style="flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+    <button type="button" id="lbNext" style="margin:0;padding:4px 12px;font-size:14px">›</button>
+    <button type="button" id="lbClose" style="margin:0;padding:4px 12px;font-size:14px">✕</button>
+  </div>
+  <img id="lbImg" alt="" style="max-width:94vw;max-height:84vh;border-radius:6px;box-shadow:0 12px 40px rgba(0,0,0,.6);background:#111">
 </div>
 
 <div id="toastHost" style="position:fixed;right:16px;bottom:16px;z-index:400;
@@ -821,6 +896,7 @@ function showSettingsSection(sec) {
     s.style.display = (s.dataset.ssec === sec) ? '' : 'none';
   });
   if (sec === 'prompts') loadPrompts();
+  if (sec === 'screenshots') loadShotsSettings();
 }
 document.querySelectorAll('#settingsSubnav button').forEach(b =>
   b.onclick = () => showSettingsSection(b.dataset.ssec));
@@ -869,6 +945,126 @@ if ($('btnResetPrompt')) $('btnResetPrompt').onclick = () => {
   const p = _promptDefs[+$('promptSelect').value]; if (!p) return;
   if (!confirm('Reset "' + p.label + '" to the built-in default? Your custom text will be discarded.')) return;
   savePrompt('');
+};
+
+// ---- screenshot lightbox (shared by the activity peek + Screenshots tab) ----
+let _lb = { day: '', items: [], idx: 0 };
+const shotUrl = (day, name) => '/api/screenshots/file?day=' + encodeURIComponent(day) + '&name=' + encodeURIComponent(name);
+function lbShow() {
+  const it = _lb.items[_lb.idx]; if (!it) return;
+  $('lbImg').src = shotUrl(_lb.day, it.file);
+  $('lbCaption').textContent = `${it.t} · ${it.app || ''}${it.title ? ' — ' + it.title : ''}   (${_lb.idx + 1}/${_lb.items.length})`;
+  $('lbPrev').disabled = _lb.idx === 0;
+  $('lbNext').disabled = _lb.idx >= _lb.items.length - 1;
+}
+function openLightbox(day, items, idx) { _lb = { day, items, idx }; $('lightbox').style.display = 'flex'; lbShow(); }
+function closeLightbox() { $('lightbox').style.display = 'none'; $('lbImg').removeAttribute('src'); }
+$('lbClose').onclick = closeLightbox;
+$('lightbox').onclick = (e) => { if (e.target === $('lightbox')) closeLightbox(); };
+$('lbPrev').onclick = () => { if (_lb.idx > 0) { _lb.idx--; lbShow(); } };
+$('lbNext').onclick = () => { if (_lb.idx < _lb.items.length - 1) { _lb.idx++; lbShow(); } };
+document.addEventListener('keydown', (e) => {
+  if ($('lightbox').style.display !== 'flex') return;
+  if (e.key === 'ArrowLeft') $('lbPrev').click();
+  else if (e.key === 'ArrowRight') $('lbNext').click();
+  else if (e.key === 'Escape') closeLightbox();
+});
+
+// ---- Screenshots tab: the selected day's shots, in order ----
+function shotThumb(day, items, i, compact) {
+  const it = items[i];
+  const d = document.createElement('div');
+  d.style.cssText = 'cursor:pointer;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--input-bg)'
+    + (compact ? ';width:150px;flex:0 0 auto' : '');
+  const esc = x => (x || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  d.innerHTML = `<img loading="lazy" src="${shotUrl(day, it.file)}" alt="" style="display:block;width:100%;aspect-ratio:16/9;object-fit:cover">`
+    + `<div style="padding:3px 6px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(it.title)}">`
+    + `<strong style="color:var(--text)">${it.t}</strong> · ${esc(it.app)}${it.title ? ' — ' + esc(it.title) : ''}</div>`;
+  d.onclick = () => openLightbox(day, items, i);
+  return d;
+}
+async function loadShotsDay() {
+  const grid = $('shotsDayGrid'); if (!grid) return;
+  const day = selDay();
+  grid.innerHTML = '<span style="color:var(--muted)">Loading…</span>';
+  try {
+    const r = await api('/api/screenshots?day=' + day);
+    const items = r.items || [];
+    $('shotsDayMeta').textContent = `${items.length} shot(s) on ${day}`
+      + (r.status && !r.status.enabled ? ' · recording is off (Settings › Screenshots)' : '');
+    grid.innerHTML = '';
+    if (!items.length) { grid.innerHTML = '<span style="color:var(--muted)">No screenshots for this day.</span>'; return; }
+    const frag = document.createDocumentFragment();
+    items.forEach((_, i) => frag.appendChild(shotThumb(day, items, i, false)));
+    grid.appendChild(frag);
+  } catch (e) { grid.innerHTML = '<span class="err-text">Couldn\'t load: ' + e.message + '</span>'; }
+}
+if ($('btnShotsDayRefresh')) $('btnShotsDayRefresh').onclick = loadShotsDay;
+
+// ---- screenshots settings (Settings > Screenshots) ----
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  const u = ['B','KB','MB','GB']; let i = 0; let v = b;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+async function loadShotsSettings() {
+  try {
+    const s = await api('/api/status');
+    const c = s.config || {}, st = s.screenshots || {};
+    $('shotsEnabled').checked = !!c.screenshots_enabled;
+    $('shotsInterval').value = String(c.screenshots_interval_min || 2);
+    $('shotsRetention').value = String(c.screenshots_retention_days || 14);
+    $('shotsExclude').value = (c.screenshots_exclude_apps || []).join(', ');
+    $('shotsStats').textContent =
+      `Storage used: ${fmtBytes(st.storage_bytes)} · today: ${st.count_today || 0} shot(s)`
+      + (st.last_capture ? ` · last capture ${st.last_capture.replace('T', ' ')}` : '')
+      + (st.last_error ? ` · last error: ${st.last_error}` : '');
+    $('btnShotsPause').textContent = st.paused ? 'Resume capture' : 'Pause capture';
+    $('shotsPill').textContent = !c.screenshots_enabled ? 'off'
+      : (st.paused ? '⏸ paused' : '● recording');
+    $('shotsPill').style.color = (c.screenshots_enabled && !st.paused) ? 'var(--bad)' : 'var(--muted)';
+  } catch (e) { $('shotsMsg').textContent = 'Load failed: ' + e.message; }
+}
+if ($('btnShotsSave')) $('btnShotsSave').onclick = async () => {
+  try {
+    await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        screenshots_enabled: $('shotsEnabled').checked,
+        screenshots_interval_min: parseInt($('shotsInterval').value, 10) || 2,
+        screenshots_retention_days: parseInt($('shotsRetention').value, 10) || 14,
+        screenshots_exclude_apps: $('shotsExclude').value.split(',').map(x => x.trim()).filter(Boolean),
+      })});
+    $('shotsMsg').textContent = 'Saved.';
+    loadShotsSettings(); refreshStatus();
+  } catch (e) { $('shotsMsg').textContent = 'Save failed: ' + e.message; }
+};
+if ($('btnShotsPause')) $('btnShotsPause').onclick = async () => {
+  try {
+    const s = await api('/api/status');
+    const paused = !((s.screenshots || {}).paused);
+    await api('/api/screenshots/pause', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({paused})});
+    $('shotsMsg').textContent = paused ? 'Capture paused.' : 'Capture resumed.';
+    loadShotsSettings(); refreshStatus();
+  } catch (e) { $('shotsMsg').textContent = 'Failed: ' + e.message; }
+};
+if ($('btnShotsPurgeOld')) $('btnShotsPurgeOld').onclick = async () => {
+  try {
+    const r = await api('/api/screenshots/purge', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({all: false})});
+    $('shotsMsg').textContent = 'Purged ' + r.removed + ' old day folder(s).';
+    loadShotsSettings();
+  } catch (e) { $('shotsMsg').textContent = 'Purge failed: ' + e.message; }
+};
+if ($('btnShotsPurgeAll')) $('btnShotsPurgeAll').onclick = async () => {
+  if (!confirm('Delete ALL screenshots on this machine? This cannot be undone.')) return;
+  try {
+    await api('/api/screenshots/purge', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({all: true})});
+    $('shotsMsg').textContent = 'All screenshots deleted.';
+    loadShotsSettings();
+  } catch (e) { $('shotsMsg').textContent = 'Delete failed: ' + e.message; }
 };
 
 // ---- profile menu / sign out ----
@@ -937,6 +1133,11 @@ async function refreshStatus() {
           'Your drafts are safe; editing and posting still work.', false, 9000);
       }
     }
+    // Screenshot recorder indicator: visible only while actually capturing.
+    const sh = s.screenshots || {};
+    const recording = !!(s.config && s.config.screenshots_enabled) && !sh.paused;
+    $('pillShots').style.display = recording ? '' : 'none';
+    if (recording) { $('pillShots').textContent = '📷 recording'; $('pillShots').className = 'pill err'; }
   } catch (e) { setMsg('Status check failed: ' + e.message, false); }
 }
 
@@ -976,7 +1177,10 @@ $('btnConnect').onclick = async () => {
 
 refreshStatus();
 $('dayPick').value = new Date().toISOString().slice(0,10);
-function reloadDay() { loadDigest(); loadDrafts(); loadSummary(); loadTimesheet(); loadIgnored(); }
+function reloadDay() {
+  loadDigest(); loadDrafts(); loadSummary(); loadTimesheet(); loadIgnored();
+  if (document.querySelector('.pane[data-pane="shots"].active')) loadShotsDay();
+}
 $('dayPick').onchange = reloadDay;
 function shiftDay(delta) {
   const d = new Date(($('dayPick').value || new Date().toISOString().slice(0,10)) + 'T00:00:00');
@@ -2349,7 +2553,11 @@ async function openActivityDetail(i) {
   $('adBody').innerHTML = '<span style="color:var(--muted)">Loading activity…</span>';
   $('activityDetailOverlay').style.display = 'flex';
   try {
-    const r = await api('/api/timeline?day=' + selDay());
+    const day = selDay();
+    const [r, shotsR] = await Promise.all([
+      api('/api/timeline?day=' + day),
+      api('/api/screenshots?day=' + day).catch(() => ({items: [], status: {}})),
+    ]);
     const esc = x => (x || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const ov = (a, b) => Math.max(0, Math.min(e, b) - Math.max(s, a));
     // Window timeline bar
@@ -2428,7 +2636,19 @@ async function openActivityDetail(i) {
         + `<span style="min-width:120px">[${esc(v.profile)}]</span>${body}</div>`;
     }).join('')
       : '<div style="color:var(--muted)">No browser visits in this window.</div>';
+    // Screenshots captured inside this entry's window (local recorder).
+    const shots = (shotsR.items || []).filter(it => it.min >= s && it.min <= e);
+    html += `<div style="font-weight:600;margin:10px 0 4px">Screenshots (${shots.length})</div>`;
+    html += shots.length
+      ? '<div id="adShots" style="display:flex;gap:6px;flex-wrap:wrap"></div>'
+      : '<div style="color:var(--muted)">No screenshots in this window'
+        + (shotsR.status && !shotsR.status.enabled ? ' — recording is off (Settings › Screenshots)' : '') + '.</div>';
     $('adBody').innerHTML = html;
+    if (shots.length) {
+      const frag = document.createDocumentFragment();
+      shots.forEach((_, k) => frag.appendChild(shotThumb(day, shots, k, true)));
+      $('adShots').appendChild(frag);
+    }
     // Wire browser links to reopen in the same profile the visit used.
     $('adBody').querySelectorAll('a[data-adv]').forEach(a => {
       a.onclick = (ev) => {
@@ -2537,6 +2757,7 @@ function showTab(name) {
     p.classList.toggle('active', p.dataset.pane === name));
   if (name === 'history') loadPosted();
   if (name === 'timeline') loadTimeline();
+  if (name === 'shots') loadShotsDay();
 }
 document.querySelectorAll('nav button').forEach(b =>
   b.onclick = () => showTab(b.dataset.tab));

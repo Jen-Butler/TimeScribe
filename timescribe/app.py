@@ -257,6 +257,14 @@ def main():
         print(f"[app] ActivityWatch: {result}")
     threading.Thread(target=_ensure_aw, daemon=True).start()
 
+    # 2c. Local screenshot recorder thread. Idle until enabled in Settings;
+    # captures stay on this machine and are never uploaded.
+    try:
+        from timescribe import screenshots as _shots
+        _shots.start()
+    except Exception as exc:
+        print(f"[app] screenshot recorder not started: {exc}")
+
     # 3. Tray icon (created first so the scheduler can use it for toasts)
     icon = pystray.Icon(
         "timescribe",

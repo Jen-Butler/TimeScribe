@@ -76,6 +76,15 @@ DEFAULTS: Dict[str, Any] = {
     # (digest | ticket_match | combined | gap_fill). Absent/empty = use the
     # built-in default. See timescribe/prompts.py.
     "prompts": {},
+    # --- Local screenshot recorder (Settings > Screenshots). OPT-IN; images
+    # stay on this machine and are never sent to Halo. ---
+    "screenshots_enabled": False,
+    "screenshots_interval_min": 2,        # periodic shot cadence while active
+    "screenshots_retention_days": 14,     # auto-purge older day folders
+    "screenshots_max_width": 1280,        # downscale for disk economy
+    "screenshots_quality": 60,            # JPEG quality
+    "screenshots_idle_skip_s": 60,        # no input this long -> skip capture
+    "screenshots_exclude_apps": [],       # exe names never to capture
 }
 
 

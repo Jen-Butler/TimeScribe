@@ -116,6 +116,10 @@ class ConfigUpdate(BaseModel):
     ui_font: Optional[str] = None               # font family, "" = default
     ui_font_custom: Optional[str] = None         # uploaded font filename, "" clears
     ui_colors: Optional[dict] = None             # {var(no --): value} overrides
+    screenshots_enabled: Optional[bool] = None
+    screenshots_interval_min: Optional[int] = None
+    screenshots_retention_days: Optional[int] = None
+    screenshots_exclude_apps: Optional[list] = None
 
 
 class SecretUpdate(BaseModel):
@@ -145,6 +149,7 @@ def status():
         "org_ai_key_set": appconfig.get_secret("org_ai_key") is not None,
         "llm_provider": cfg.get("llm_provider", "anthropic"),
         "ai_health": __import__("timescribe.llm", fromlist=["ai_health"]).ai_health(),
+        "screenshots": __import__("timescribe.screenshots", fromlist=["status"]).status(),
         "config": {k: v for k, v in cfg.items() if "key" not in k.lower()},
     }
 
@@ -496,6 +501,60 @@ def prompts_set(body: PromptUpdate):
     cfg["prompts"] = overrides
     appconfig.save(cfg)
     return {"ok": True, "customized": body.key in overrides}
+
+
+# ---------- Local screenshot recorder ----------
+
+@app.get("/api/screenshots")
+def screenshots_list(day: str = None):
+    """The day's screenshot index (time, file, app, title) plus recorder
+    status. Optional from_min/to_min filtering is done client-side."""
+    from timescribe import screenshots as _shots
+    target = _date.fromisoformat(day) if day else _date.today()
+    return {"day": target.isoformat(), "items": _shots.load_index(target),
+            "status": _shots.status()}
+
+
+@app.get("/api/screenshots/file")
+def screenshots_file(day: str, name: str):
+    """Serve one screenshot. Only files present in that day's index resolve
+    (path-traversal safe)."""
+    from fastapi.responses import FileResponse, Response
+    from timescribe import screenshots as _shots
+    target = _date.fromisoformat(day)
+    p = _shots.file_path(target, name)
+    if p is None:
+        return Response(status_code=404)
+    return FileResponse(str(p), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
+
+
+class ShotsPurge(BaseModel):
+    all: bool = False
+
+
+@app.post("/api/screenshots/purge")
+def screenshots_purge(body: ShotsPurge):
+    """Delete screenshots: everything (all=true) or just those past the
+    retention window."""
+    from timescribe import screenshots as _shots
+    if body.all:
+        _shots.purge_all()
+        return {"ok": True, "removed": "all"}
+    days = int(appconfig.load().get("screenshots_retention_days", 14))
+    return {"ok": True, "removed": _shots.purge_old(days)}
+
+
+class ShotsPause(BaseModel):
+    paused: bool
+
+
+@app.post("/api/screenshots/pause")
+def screenshots_pause(body: ShotsPause):
+    """Temporarily pause/resume capture without changing the setting."""
+    from timescribe import screenshots as _shots
+    _shots.set_paused(body.paused)
+    return {"ok": True, "paused": body.paused}
 
 
 @app.get("/api/ticket")
