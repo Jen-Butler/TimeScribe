@@ -547,6 +547,13 @@
        border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.4)">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
       <strong id="adTitle" style="font-size:14px;flex:1">Activity</strong>
+      <label style="margin:0;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">Hide brief app focus
+        <select id="adFilter" style="width:auto;padding:2px 6px;font-size:11px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+          <option value="0">off</option>
+          <option value="10">&lt; 10s</option>
+          <option value="30">&lt; 30s (0m)</option>
+          <option value="60">&lt; 1m</option>
+        </select></label>
       <button type="button" id="adClose" style="margin:0;padding:3px 10px;font-size:12px">✕</button>
     </div>
     <div id="adBody" style="font-size:13px"></div>
@@ -2318,13 +2325,23 @@ async function openTicketDetail(i) {
 }
 
 // ---- per-entry activity peek (scoped to the entry's time window) ----
-function closeActivityDetail() { $('activityDetailOverlay').style.display = 'none'; }
+function closeActivityDetail() { $('activityDetailOverlay').style.display = 'none'; _adIndex = null; }
 $('adClose').onclick = closeActivityDetail;
 $('activityDetailOverlay').onclick = (e) => { if (e.target === $('activityDetailOverlay')) closeActivityDetail(); };
+// "Hide brief app focus" filter — persists; re-renders the open modal.
+let _adIndex = null;
+if ($('adFilter')) {
+  try { $('adFilter').value = localStorage.getItem('ts_adFilter') || '30'; } catch (e) { /* ignore */ }
+  $('adFilter').onchange = () => {
+    try { localStorage.setItem('ts_adFilter', $('adFilter').value); } catch (e) { /* ignore */ }
+    if (_adIndex != null) openActivityDetail(_adIndex);
+  };
+}
 function _hm2min(hm) {
   const m = /^(\d{1,2}):(\d{2})/.exec(hm || ''); return m ? (+m[1]) * 60 + (+m[2]) : null;
 }
 async function openActivityDetail(i) {
+  _adIndex = i;
   const s = _hm2min($('ds' + i) && $('ds' + i).value);
   const e = _hm2min($('de' + i) && $('de' + i).value);
   if (s == null || e == null || e <= s) { setMsg2('This entry needs valid start/end times.', false); return; }
@@ -2376,13 +2393,18 @@ async function openActivityDetail(i) {
     }
     const fmtClk = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
     // Chronological -- the order the apps were actually focused (like the
-    // browser list), NOT sorted by duration.
-    const apps = (r.windows || []).filter(w => ov(w.start, w.end) > 0)
-      .map(w => ({ ...w, mins: Math.round(ov(w.start, w.end)) }))
-      .sort((a, b) => a.start - b.start);
+    // browser list), NOT sorted by duration. secs = actual focus seconds
+    // within this window (start/end carry sub-minute precision).
+    const minSecs = parseInt(($('adFilter') && $('adFilter').value) || '0', 10) || 0;
+    const allApps = (r.windows || []).filter(w => ov(w.start, w.end) > 0)
+      .map(w => ({ ...w, secs: ov(w.start, w.end) * 60, mins: Math.round(ov(w.start, w.end)) }));
+    const apps = allApps.filter(w => w.secs >= minSecs).sort((a, b) => a.start - b.start);
+    const hidden = allApps.length - apps.length;
     const vis = (r.visits || []).filter(v => v.t >= s && v.t <= e);
     let html = svg;
-    html += `<div style="font-weight:600;margin:6px 0 2px">App focus</div>`;
+    html += `<div style="font-weight:600;margin:6px 0 2px">App focus`
+      + (hidden ? ` <span style="font-weight:400;color:var(--muted);font-size:11px">(${hidden} brief hidden)</span>` : '')
+      + `</div>`;
     html += apps.length ? apps.map(w => {
       const prof = browserProfile(w.app, w.title);
       const label = prof ? 'Edge · ' + esc(prof) : esc(w.app);
