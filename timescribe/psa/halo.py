@@ -676,6 +676,10 @@ class HaloPSAAdapter(PSAAdapter):
                     return r.get(k)
             return None
 
+        def rr_is_nocharge(r):
+            # Halo's API reports no-charge as chargerate 0 (DB ActionCode -1).
+            return str(r.get("chargerate")) in ("0", "-1")
+
         results = []
         for tid, mine in sorted(by_ticket.items()):
             try:
@@ -687,8 +691,13 @@ class HaloPSAAdapter(PSAAdapter):
             rows = [r for r in (rows or []) if isinstance(r, dict)]
             timed = [r for r in rows if (r.get("timetaken") or 0) > 0]
             my_ids = {str(p["posted_id"]) for p in mine}
-            ours = [r for r in timed if str(r.get("id")) in my_ids]
-            manual = [r for r in timed if str(r.get("id")) not in my_ids]
+            # Halo tags actions with the creating OAuth app, so use that as
+            # the authoritative marker (covers entries not in the local log).
+            def is_ours(r):
+                return (str(r.get("id")) in my_ids
+                        or r.get("actionby_application_id") == "TimeScribe")
+            ours = [r for r in timed if is_ours(r)]
+            manual = [r for r in timed if not is_ours(r)]
             manual_rates = Counter(rate_of(r) for r in manual if rate_of(r) is not None)
             ref = manual_rates.most_common(1)[0][0] if manual_rates else None
             ref_name = next((rate_name(r) for r in manual
@@ -696,16 +705,26 @@ class HaloPSAAdapter(PSAAdapter):
             entries = []
             for r in ours:
                 p = next((x for x in mine if str(x.get("posted_id")) == str(r.get("id"))), {})
-                nocharge = bool(p.get("no_charge"))
+                nocharge = bool(p.get("no_charge")) or rr_is_nocharge(r)
                 rr = rate_of(r)
                 match = nocharge or ref is None or rr == ref
+                # Billed hours across Halo's buckets. A timed, billable-rate
+                # entry with all buckets at 0 has been rounded away by the
+                # rate's increment/minimum (typically very short entries) --
+                # it exists as a note but bills nothing.
+                billed = sum(float(r.get(k) or 0) for k in
+                             ("actionchargehours", "actionprepayhours",
+                              "actionnonchargehours"))
+                zero_billed = (float(r.get("timetaken") or 0) > 0
+                               and billed == 0 and not nocharge)
                 entries.append({
                     "action_id": r.get("id"), "day": p.get("day"),
                     "when": str(r.get("datetime", ""))[:16],
                     "timetaken": r.get("timetaken"),
                     "chargerate": rr, "chargerate_name": rate_name(r),
                     "no_charge": nocharge, "match": match,
-                    "note": (p.get("note") or "")[:80]})
+                    "billed_hours": round(billed, 3), "zero_billed": zero_billed,
+                    "note": (p.get("note") or r.get("note") or "")[:80]})
             client = next((r.get("client_name") for r in rows if r.get("client_name")), "")
             results.append({
                 "ticket_id": tid, "client": client,
@@ -714,10 +733,12 @@ class HaloPSAAdapter(PSAAdapter):
                 "manual_rate_breakdown": dict(manual_rates),
                 "entries": entries,
                 "mismatches": sum(1 for e in entries if not e["match"]),
+                "zero_billed": sum(1 for e in entries if e["zero_billed"]),
                 "no_reference": ref is None})
         return {"tickets": results,
                 "total_entries": sum(len(t.get("entries", [])) for t in results),
                 "total_mismatches": sum(t.get("mismatches", 0) for t in results),
+                "total_zero_billed": sum(t.get("zero_billed", 0) for t in results),
                 "tickets_without_reference": sum(1 for t in results if t.get("no_reference"))}
 
     def _ticket_default_chargerate(self, ticket_id):

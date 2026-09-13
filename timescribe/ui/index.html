@@ -1908,8 +1908,9 @@ $('btnAuditRates').onclick = async () => {
   $('auditResults').innerHTML = '<span style="color:var(--muted)">Checking each ticket in Halo…</span>';
   try {
     const r = await api('/api/audit/chargerates?days=90');
-    $('auditMeta').textContent = `${r.posted_considered} posted · ${r.total_entries} found in Halo · `
-      + `${r.total_mismatches} mismatch(es) · ${r.tickets_without_reference} ticket(s) with no manual entry to compare`;
+    $('auditMeta').textContent = `${r.total_entries} TimeScribe entries in Halo · `
+      + `${r.total_mismatches} rate mismatch(es) · ${r.total_zero_billed || 0} billing zero hours (rounded away) · `
+      + `${r.tickets_without_reference} ticket(s) with no manual entry to compare`;
     const esc = x => String(x == null ? '' : x).replace(/</g, '&lt;');
     const tickets = r.tickets.slice().sort((a, b) => (b.mismatches || 0) - (a.mismatches || 0));
     let html = '';
@@ -1928,12 +1929,14 @@ $('btnAuditRates').onclick = async () => {
       html += `<div style="padding:8px 0;border-bottom:1px solid var(--border)">`
         + `<div><strong>#${t.ticket_id}</strong> ${esc(t.client)} — ${ref}${badge}</div>`;
       for (const e of t.entries) {
-        const col = e.match ? 'var(--muted)' : 'var(--bad)';
+        const bad = !e.match || e.zero_billed;
+        const col = bad ? 'var(--bad)' : 'var(--muted)';
+        const flag = !e.match ? '✗ rate differs' : (e.zero_billed ? '⚠ bills 0h (rounded away)' : '');
         html += `<div style="display:flex;gap:10px;font-size:12px;color:${col};padding:1px 0 1px 12px">`
           + `<span style="min-width:118px">${esc(e.when)}</span>`
           + `<span style="min-width:44px">${(+e.timetaken || 0).toFixed(2)}h</span>`
           + `<span style="min-width:170px">rate: ${esc(e.chargerate_name || e.chargerate || '(none)')}${e.no_charge ? ' · no-charge' : ''}</span>`
-          + `<span style="flex:1;color:var(--muted)">${esc(e.note)}</span>${e.match ? '' : '<span>✗</span>'}</div>`;
+          + `<span style="flex:1;color:var(--muted)">${esc(e.note)}</span><span>${flag}</span></div>`;
       }
       html += '</div>';
     }
