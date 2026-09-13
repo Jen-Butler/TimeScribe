@@ -578,6 +578,18 @@
     </h2>
     <div id="postedList" style="font-size:13px;line-height:1.7"></div>
   </div>
+
+  <div class="card">
+    <h2>Charge rate audit
+      <button id="btnAuditRates" style="margin:0;padding:4px 12px;font-size:12px">Run audit</button>
+      <span id="auditMeta" style="font-size:11px;color:var(--muted);margin-left:8px"></span>
+    </h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
+      Compares the charge rate on every entry TimeScribe posted (last 90 days) against
+      the manual time entries already on the same ticket, and flags any that differ.
+      Read-only — it only reports. No-charge entries are expected to differ and aren't flagged.</p>
+    <div id="auditResults" style="font-size:13px"></div>
+  </div>
   </div><!-- /history pane -->
 
   <div class="pane" data-pane="shots">
@@ -1889,6 +1901,46 @@ async function loadPosted() {
 }
 
 $('btnPostedRefresh').onclick = loadPosted;
+
+// ---- charge rate audit (History tab) ----
+$('btnAuditRates').onclick = async () => {
+  const btn = $('btnAuditRates'); btn.disabled = true; btn.textContent = 'Auditing…';
+  $('auditResults').innerHTML = '<span style="color:var(--muted)">Checking each ticket in Halo…</span>';
+  try {
+    const r = await api('/api/audit/chargerates?days=90');
+    $('auditMeta').textContent = `${r.posted_considered} posted · ${r.total_entries} found in Halo · `
+      + `${r.total_mismatches} mismatch(es) · ${r.tickets_without_reference} ticket(s) with no manual entry to compare`;
+    const esc = x => String(x == null ? '' : x).replace(/</g, '&lt;');
+    const tickets = r.tickets.slice().sort((a, b) => (b.mismatches || 0) - (a.mismatches || 0));
+    let html = '';
+    for (const t of tickets) {
+      if (t.error) {
+        html += `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><strong>#${t.ticket_id}</strong> <span class="err-text">${esc(t.error)}</span></div>`;
+        continue;
+      }
+      const ref = t.reference_rate == null
+        ? '<span style="color:var(--muted)">no manual entries to compare against</span>'
+        : `manual rate: <strong>${esc(t.reference_name || t.reference_rate)}</strong> `
+          + `<span style="color:var(--muted)">(id ${esc(t.reference_rate)}, from ${t.manual_count} manual entr${t.manual_count === 1 ? 'y' : 'ies'})</span>`;
+      const badge = t.mismatches
+        ? `<span style="color:var(--bad);font-weight:600"> · ${t.mismatches} mismatch${t.mismatches === 1 ? '' : 'es'}</span>`
+        : (t.reference_rate == null ? '' : '<span style="color:var(--good)"> · ✓ all match</span>');
+      html += `<div style="padding:8px 0;border-bottom:1px solid var(--border)">`
+        + `<div><strong>#${t.ticket_id}</strong> ${esc(t.client)} — ${ref}${badge}</div>`;
+      for (const e of t.entries) {
+        const col = e.match ? 'var(--muted)' : 'var(--bad)';
+        html += `<div style="display:flex;gap:10px;font-size:12px;color:${col};padding:1px 0 1px 12px">`
+          + `<span style="min-width:118px">${esc(e.when)}</span>`
+          + `<span style="min-width:44px">${(+e.timetaken || 0).toFixed(2)}h</span>`
+          + `<span style="min-width:170px">rate: ${esc(e.chargerate_name || e.chargerate || '(none)')}${e.no_charge ? ' · no-charge' : ''}</span>`
+          + `<span style="flex:1;color:var(--muted)">${esc(e.note)}</span>${e.match ? '' : '<span>✗</span>'}</div>`;
+      }
+      html += '</div>';
+    }
+    $('auditResults').innerHTML = html || '<span style="color:var(--muted)">No posted ticket entries found in the window.</span>';
+  } catch (e) { $('auditResults').innerHTML = '<span class="err-text">Audit failed: ' + e.message + '</span>'; }
+  finally { btn.disabled = false; btn.textContent = 'Run audit'; }
+};
 loadSummary();
 loadPosted();
 

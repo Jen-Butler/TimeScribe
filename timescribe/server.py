@@ -503,6 +503,26 @@ def prompts_set(body: PromptUpdate):
     return {"ok": True, "customized": body.key in overrides}
 
 
+# ---------- Charge rate audit ----------
+
+@app.get("/api/audit/chargerates")
+def audit_chargerates(days: int = 90):
+    """Read-only: compare the charge rate on every entry TimeScribe posted
+    (last N days) against the manual timed entries on the same tickets, and
+    flag mismatches. Runs in-process on the app's own Halo session."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    posted = [p for p in _drafts.posted_log(days_back=days) if p.get("ticket_id")]
+    try:
+        out = a.audit_chargerates(posted)
+    except Exception as exc:
+        raise HTTPException(502, str(exc))
+    out["days"] = days
+    out["posted_considered"] = len(posted)
+    return out
+
+
 # ---------- Local screenshot recorder ----------
 
 @app.get("/api/screenshots")

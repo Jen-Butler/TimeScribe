@@ -653,6 +653,73 @@ class HaloPSAAdapter(PSAAdapter):
         print(f"[halo] ticket {ticket_id}: {len(out)} actions")
         return out
 
+    def audit_chargerates(self, posted: list) -> dict:
+        """Compare the charge rate on each TimeScribe-posted action with the
+        MANUAL timed actions on the same ticket (the reference = the most
+        common rate among manual entries). Read-only. `posted` is the local
+        posted log: items with ticket_id + posted_id (Halo's per-ticket
+        action id) + no_charge. No-charge entries are expected to differ
+        and aren't flagged."""
+        from collections import Counter, defaultdict
+        by_ticket = defaultdict(list)
+        for p in posted:
+            if p.get("ticket_id") and str(p.get("posted_id", "")).strip():
+                by_ticket[int(p["ticket_id"])].append(p)
+
+        def rate_of(r):
+            v = r.get("chargerate")
+            return None if v in (None, "", -1) else str(v)
+
+        def rate_name(r):
+            for k in ("chargerate_name", "chargeratename", "charge_rate_name"):
+                if r.get(k):
+                    return r.get(k)
+            return None
+
+        results = []
+        for tid, mine in sorted(by_ticket.items()):
+            try:
+                raw = self._api_get("Actions", params={"ticket_id": tid, "count": 500})
+            except Exception as exc:
+                results.append({"ticket_id": tid, "error": str(exc)[:200]})
+                continue
+            rows = raw.get("actions") if isinstance(raw, dict) else raw
+            rows = [r for r in (rows or []) if isinstance(r, dict)]
+            timed = [r for r in rows if (r.get("timetaken") or 0) > 0]
+            my_ids = {str(p["posted_id"]) for p in mine}
+            ours = [r for r in timed if str(r.get("id")) in my_ids]
+            manual = [r for r in timed if str(r.get("id")) not in my_ids]
+            manual_rates = Counter(rate_of(r) for r in manual if rate_of(r) is not None)
+            ref = manual_rates.most_common(1)[0][0] if manual_rates else None
+            ref_name = next((rate_name(r) for r in manual
+                             if rate_of(r) == ref and rate_name(r)), None)
+            entries = []
+            for r in ours:
+                p = next((x for x in mine if str(x.get("posted_id")) == str(r.get("id"))), {})
+                nocharge = bool(p.get("no_charge"))
+                rr = rate_of(r)
+                match = nocharge or ref is None or rr == ref
+                entries.append({
+                    "action_id": r.get("id"), "day": p.get("day"),
+                    "when": str(r.get("datetime", ""))[:16],
+                    "timetaken": r.get("timetaken"),
+                    "chargerate": rr, "chargerate_name": rate_name(r),
+                    "no_charge": nocharge, "match": match,
+                    "note": (p.get("note") or "")[:80]})
+            client = next((r.get("client_name") for r in rows if r.get("client_name")), "")
+            results.append({
+                "ticket_id": tid, "client": client,
+                "manual_count": len(manual), "reference_rate": ref,
+                "reference_name": ref_name,
+                "manual_rate_breakdown": dict(manual_rates),
+                "entries": entries,
+                "mismatches": sum(1 for e in entries if not e["match"]),
+                "no_reference": ref is None})
+        return {"tickets": results,
+                "total_entries": sum(len(t.get("entries", [])) for t in results),
+                "total_mismatches": sum(t.get("mismatches", 0) for t in results),
+                "tickets_without_reference": sum(1 for t in results if t.get("no_reference"))}
+
     def _ticket_default_chargerate(self, ticket_id):
         """Read the ticket's default charge rate so posted time bills at
         the same tier the ticket is configured for. Halo exposes this
