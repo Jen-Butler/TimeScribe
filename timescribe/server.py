@@ -224,14 +224,25 @@ def halo_connect():
     a = get_adapter()
     if a is None:
         raise HTTPException(400, "Set Halo base URL and Client ID first")
+    # A retry supersedes a stuck attempt (e.g. the browser opened in the
+    # wrong profile) instead of refusing with "already in progress": cancel
+    # the pending callback wait so it unblocks and frees the port, then take
+    # the lock ourselves.
     if not _oauth_lock.acquire(blocking=False):
-        raise HTTPException(409, "OAuth flow already in progress")
+        from timescribe.oauth.pkce import cancel_pending
+        cancel_pending()
+        if not _oauth_lock.acquire(timeout=10):
+            raise HTTPException(409, "Previous sign-in is still shutting down -- try once more")
     try:
         a.connect()   # opens browser, blocks until callback or timeout
         rec = a.get_current_agent()
         return {"ok": True, "agent": {"id": rec.get("id"), "name": rec.get("name")}}
     except Exception as exc:
-        raise HTTPException(500, f"OAuth failed: {exc}")
+        msg = str(exc)
+        if "cancelled" in msg.lower() or "superseded" in msg.lower():
+            # This attempt was replaced by a newer click; nothing to report.
+            raise HTTPException(409, "Sign-in restarted in a new attempt")
+        raise HTTPException(500, f"OAuth failed: {msg}")
     finally:
         _oauth_lock.release()
 

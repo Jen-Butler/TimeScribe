@@ -113,15 +113,41 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
         pass  # silence stderr
 
 
+# The wait event of the attempt currently blocking in start_callback_server
+# (None when idle). cancel_pending() fires it so a stuck attempt returns
+# immediately and releases the callback port for a fresh try.
+_pending_ready: Optional[threading.Event] = None
+_pending_lock = threading.Lock()
+
+
+def cancel_pending() -> bool:
+    """Abort an in-flight callback wait (e.g. browser opened in the wrong
+    profile and the user is retrying). Returns True if one was waiting."""
+    with _pending_lock:
+        ev = _pending_ready
+    if ev is None or ev.is_set():
+        return False
+    _CallbackHandler.result = CallbackResult(
+        error="cancelled", error_description="Superseded by a new sign-in attempt")
+    ev.set()
+    return True
+
+
 def start_callback_server(timeout_seconds: int = 300) -> CallbackResult:
     """Spin up a one-shot localhost server, wait for the redirect, tear it down.
 
     Blocks up to timeout_seconds. Returns whatever the PSA sent back.
     """
+    global _pending_ready
     ready = threading.Event()
     _CallbackHandler.result = CallbackResult()
     _CallbackHandler.ready_event = ready
+    with _pending_lock:
+        _pending_ready = ready
 
+    # Allow immediate rebinding: a just-cancelled attempt's socket may still
+    # be in TIME_WAIT on the same port.
+    socketserver.TCPServer.allow_reuse_address = True
     server = socketserver.TCPServer(("127.0.0.1", CALLBACK_PORT), _CallbackHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -131,6 +157,9 @@ def start_callback_server(timeout_seconds: int = 300) -> CallbackResult:
             return CallbackResult(error="timeout", error_description=f"No redirect after {timeout_seconds}s")
         return _CallbackHandler.result
     finally:
+        with _pending_lock:
+            if _pending_ready is ready:
+                _pending_ready = None
         server.shutdown()
         server.server_close()
 
