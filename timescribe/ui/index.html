@@ -314,6 +314,17 @@
       <input type="checkbox" id="combinedDrafts" style="width:auto;margin:0">
       Build ticket-matched drafts during each digest (one AI pass does digest + matching)
     </label>
+    <label style="display:block;margin:12px 0 4px">Ignore brief app focus</label>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="minFocusSecs" style="width:auto;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+        <option value="0">off — keep everything</option>
+        <option value="5">shorter than 5 seconds</option>
+        <option value="10">shorter than 10 seconds</option>
+        <option value="30">shorter than 30 seconds</option>
+        <option value="60">shorter than 1 minute</option>
+      </select>
+      <span style="font-size:11px;color:var(--muted)">Applies everywhere: the activity view, the digest, and ticket matching all skip windows focused for less than this.</span>
+    </div>
     <label style="display:block;margin:12px 0 4px">Default draft sort</label>
     <select id="draftSortDefault" style="width:auto;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
       <option value="smart">Status</option>
@@ -641,8 +652,9 @@
       <label style="margin:0;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">Hide brief app focus
         <select id="adFilter" style="width:auto;padding:2px 6px;font-size:11px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
           <option value="0">off</option>
+          <option value="5">&lt; 5s</option>
           <option value="10">&lt; 10s</option>
-          <option value="30">&lt; 30s (0m)</option>
+          <option value="30">&lt; 30s</option>
           <option value="60">&lt; 1m</option>
         </select></label>
       <button type="button" id="adClose" style="margin:0;padding:3px 10px;font-size:12px">✕</button>
@@ -1317,6 +1329,7 @@ function draftRow(d, i, nbr) {
   const div = document.createElement('div');
   div.className = 'draft-row is-' + (d.status || 'draft');
   const conf = Math.round((d.confidence || 0) * 100);
+  const esc = x => String(x || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
   const statusColor = {draft:'var(--muted)', approved:'var(--good)',
                        rejected:'var(--bad)', posted:'var(--accent)'}[d.status] || 'var(--muted)';
   // Posted entries stay editable so they can be tweaked before a repost;
@@ -1348,7 +1361,7 @@ function draftRow(d, i, nbr) {
               title="View this ticket's info and notes" style="margin:0;padding:3px 8px;font-size:12px">📝</button>
       <button type="button" onclick="openTicketSearch(${i})" ${editable?'':'disabled'}
               title="Search for a ticket to link" style="margin:0;padding:3px 8px;font-size:12px">🔍 Find</button>
-      <span style="color:var(--muted);font-size:11px">${conf ? conf + '% confident' : ''}</span>
+      <span style="color:var(--muted);font-size:11px" title="${esc(d.match_reason || '')}">${conf ? conf + '% confident' : ''}${d.match_reason ? ' — ' + esc(d.match_reason) : ''}</span>
       <span id="dsave${i}" style="font-size:11px;margin-left:auto"></span>
     </div>
     <div style="color:var(--muted);font-size:11px;margin:3px 0">${target}</div>
@@ -2129,6 +2142,7 @@ async function loadSchedule() {
     if (c.work_end) $('workEnd').value = c.work_end;
     if (c.digest_interval_minutes) $('digestInterval').value = String(c.digest_interval_minutes);
     $('combinedDrafts').checked = c.combined_digest_drafts !== false;
+    setMinFocusUI(c.min_focus_seconds);
     if (c.draft_sort_default) {
       $('draftSortDefault').value = c.draft_sort_default;
       // Apply the saved default to the live sort control and re-render the
@@ -2151,6 +2165,7 @@ $('btnSaveSchedule').onclick = async () => {
         digest_interval_minutes: parseInt($('digestInterval').value, 10),
         digest_weekdays: schedDays,
         combined_digest_drafts: $('combinedDrafts').checked,
+        min_focus_seconds: parseInt($('minFocusSecs').value, 10) || 0,
         draft_sort_default: $('draftSortDefault').value,
         pomo_focus_min: parseInt($('pomoFocusMin').value, 10) || 25,
         pomo_break_min: parseInt($('pomoBreakMin').value, 10) || 5,
@@ -2620,12 +2635,27 @@ async function openTicketDetail(i) {
 function closeActivityDetail() { $('activityDetailOverlay').style.display = 'none'; _adIndex = null; }
 $('adClose').onclick = closeActivityDetail;
 $('activityDetailOverlay').onclick = (e) => { if (e.target === $('activityDetailOverlay')) closeActivityDetail(); };
-// "Hide brief app focus" filter — persists; re-renders the open modal.
+// "Hide brief app focus" is the GLOBAL min_focus_seconds setting (the same
+// one the digest and ticket matching use), so what you see is what the AI
+// sees. The peek dropdown and Settings > General are two views of it.
 let _adIndex = null;
+function setMinFocusUI(v) {
+  const s = String(parseInt(v, 10) || 0);
+  for (const id of ['adFilter', 'minFocusSecs']) {
+    const el = $(id); if (!el) continue;
+    if (![...el.options].some(o => o.value === s)) {
+      const o = document.createElement('option'); o.value = s; o.textContent = '< ' + s + 's'; el.appendChild(o);
+    }
+    el.value = s;
+  }
+}
 if ($('adFilter')) {
-  try { $('adFilter').value = localStorage.getItem('ts_adFilter') || '30'; } catch (e) { /* ignore */ }
-  $('adFilter').onchange = () => {
-    try { localStorage.setItem('ts_adFilter', $('adFilter').value); } catch (e) { /* ignore */ }
+  $('adFilter').onchange = async () => {
+    setMinFocusUI($('adFilter').value);
+    try {
+      await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({min_focus_seconds: parseInt($('adFilter').value, 10) || 0})});
+    } catch (e) { /* view still filters locally */ }
     if (_adIndex != null) openActivityDetail(_adIndex);
   };
 }

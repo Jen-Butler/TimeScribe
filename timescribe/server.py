@@ -114,6 +114,7 @@ class ConfigUpdate(BaseModel):
     aw_host: Optional[str] = None
     digest_weekdays: Optional[list] = None      # [0..6], Mon=0
     digest_interval_minutes: Optional[int] = None
+    min_focus_seconds: Optional[int] = None
     combined_digest_drafts: Optional[bool] = None
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
     ticket_browser_profile: Optional[str] = None  # Edge profile-directory

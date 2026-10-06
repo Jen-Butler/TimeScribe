@@ -51,6 +51,9 @@ DEFAULTS: Dict[str, Any] = {
     "org_ai_model_default": "gpt-4o-mini",
     "org_ai_model_planner": "gpt-4o",
     "digest_interval_minutes": 120,
+    # Global noise floor: app-focus windows shorter than this are dropped
+    # from the activity view, the digest feed and ticket matching alike.
+    "min_focus_seconds": 10,
     "eod_time": "17:15",
     # Which weekdays the scheduler runs (0=Mon .. 6=Sun). Default Mon-Fri.
     "digest_weekdays": [0, 1, 2, 3, 4],

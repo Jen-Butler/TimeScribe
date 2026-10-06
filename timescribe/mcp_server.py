@@ -70,14 +70,22 @@ def get_browser_history(day: str = "", limit: int = 500) -> str:
     return json.dumps({"day": d.isoformat(), "count": len(visits), "visits": out})
 
 
+def _min_focus(v: int) -> int:
+    if v is not None and v >= 0:
+        return int(v)
+    from timescribe import appconfig
+    return int(appconfig.load().get("min_focus_seconds", 10) or 0)
+
+
 @mcp.tool()
-def get_window_activity(day: str = "", min_focus_seconds: int = 30) -> str:
+def get_window_activity(day: str = "", min_focus_seconds: int = -1) -> str:
     """Get application window-focus events from ActivityWatch for a day:
     which apps were focused, window titles, and for how long.
 
     Args:
         day: ISO date YYYY-MM-DD. Empty = today.
-        min_focus_seconds: skip events shorter than this (default 30).
+        min_focus_seconds: skip events shorter than this. -1 (default) =
+            use the app's global "ignore brief app focus" setting.
 
     Returns JSON: {day, count, events: [{time, app, title, minutes}]}
     """
@@ -88,7 +96,7 @@ def get_window_activity(day: str = "", min_focus_seconds: int = 30) -> str:
         "app": e["app"],
         "title": e["title"][:150],
         "minutes": round(e["duration_s"] / 60, 1),
-    } for e in events if e["duration_s"] >= min_focus_seconds]
+    } for e in events if e["duration_s"] >= _min_focus(min_focus_seconds)]
     return json.dumps({"day": d.isoformat(), "count": len(out), "events": out})
 
 

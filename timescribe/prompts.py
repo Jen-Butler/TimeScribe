@@ -38,6 +38,8 @@ FORMATS = {
       "end_time": "HH:MM",
       "note": "Professional first-person-omitted billing note describing the work",
       "confidence": 0.9,
+      "evidence": "ticket_number | subject_topic | client_only",
+      "match_reason": "one sentence citing the activity that matches the ticket SUBJECT",
       "activity_refs": ["09:15-09:45"]
     }
   ],
@@ -52,6 +54,8 @@ FORMATS = {
   "drafts": [
     {"ticket_id": 12647, "start_time": "HH:MM", "end_time": "HH:MM",
      "note": "professional billing note", "confidence": 0.9,
+     "evidence": "ticket_number | subject_topic | client_only",
+     "match_reason": "one sentence citing the activity that matches the ticket SUBJECT",
      "activity_refs": ["09:15-09:45"]}
   ],
   "unmatched": [
@@ -59,7 +63,8 @@ FORMATS = {
   ]
 }""",
     "gap_fill": """{"drafts":[{"ticket_id":123 or null,"start_time":"HH:MM","end_time":"HH:MM",
-  "note":"...","confidence":0.0-1.0,"no_charge":false}],
+  "note":"...","confidence":0.0-1.0,"no_charge":false,
+  "evidence":"ticket_number | subject_topic | client_only","match_reason":"..."}],
  "unmatched":[]}""",
 }
 

@@ -95,13 +95,16 @@ def build_signal_feed(since: datetime, until: datetime) -> str:
     )
     windows = activitywatch.get_window_events(since, until)
     afk = activitywatch.get_inactivity_periods(since, until)
+    # Same noise floor the activity view uses, so the AI sees exactly what
+    # the technician sees when they review a block.
+    min_focus = int(cfg.get("min_focus_seconds", 10) or 0)
 
     lines = []  # (sort_time, text)
     for v in visits:
         t = v["time"]
         lines.append((t, f"{t:%H:%M} [{v['profile']} | {v['domain']}] {v['title'][:120]}"))
     for w in windows:
-        if w["duration_s"] < 30:
+        if w["duration_s"] < min_focus:
             continue
         t = w["time"]
         mins = round(w["duration_s"] / 60, 1)

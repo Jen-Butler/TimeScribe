@@ -17,15 +17,62 @@ SYSTEM_PROMPT = """You are a billing assistant for an MSP technician. You receiv
 Your job: correlate activity to tickets and draft time entries.
 
 Rules:
-- Only draft an entry when the activity plausibly relates to a specific ticket. Client-name match (profile vs ticket client) is strong evidence. Subject-keyword match is strong evidence. Weak guesses go to unmatched instead.
+- TICKET MATCHING IS ABOUT THE PROBLEM, NOT THE CLIENT. Assign a ticket_id only when the activity shows work on the specific issue in that ticket's SUBJECT (same system, feature, error, request, or person). The client name appearing in the activity is NOT evidence by itself: a client has many tickets and most of a technician's work for a client is not on any open ticket. If the only link is the client name, set ticket_id null (quick time) and mention the client in the note -- the technician will assign it. Wrong tickets are far worse than unassigned ones.
+- Every draft states its evidence: "ticket_number" (the ticket id appears in the activity), "subject_topic" (the activity clearly concerns the ticket's subject), or "client_only" (nothing beyond the client name). client_only drafts MUST have ticket_id null.
+- match_reason: one sentence quoting the specific activity that ties to the ticket's subject. If you cannot write that sentence without just naming the client, there is no match.
 - Merge adjacent/related digest entries for the same ticket into ONE draft spanning the combined time.
 - DRAFTS MUST NOT OVERLAP IN TIME. Each minute belongs to at most one draft; when activity interleaves between tickets, split at the boundaries rather than emitting a long entry that swallows a shorter concurrent one.
 - The focused/active window outranks background browser tabs when deciding the ticket for a given stretch.
 - Round times to the nearest 5 minutes. Minimum entry: 10 minutes.
 - The note should read like a professional time entry: what was done, for what system/feature, outcome if visible. No "the user" phrasing -- write like a technician writes ("Configured integration runbook for asset sync; tested against dev environment").
-- confidence: 0.9+ = explicit ticket-number or exact-subject evidence; 0.7-0.9 = strong client+topic match; below 0.7 = send to unmatched instead.
+- confidence: 0.9+ = the ticket number itself appears in the activity (URL, window title, email subject); 0.75-0.9 = the activity unmistakably concerns the ticket's subject; anything less = ticket_id null. Never give a client-only link more than 0.5.
 - General/internal activity (email triage, team meetings, personal browsing, this app) -> unmatched with a short reason.
 - Never invent tickets. Only use ticket_ids from the provided list."""
+
+
+# Shared, prompt-independent backstop. Applied to every draft the model
+# returns, whichever prompt produced it, so a prompt edit or a model that
+# ignores the rules can't put client-only guesses on real tickets.
+MIN_MATCH_CONFIDENCE = 0.75
+
+
+def demote_weak_matches(items: List[dict], tmap: dict) -> int:
+    """Clear ticket_id on drafts whose only link is the client name or whose
+    confidence is below MIN_MATCH_CONFIDENCE. Keeps the client as a hint in
+    `subject`. Returns the number demoted."""
+    n = 0
+    # Drop structurally invalid drafts (end <= start) and the model's
+    # occasional "placeholder" filler for already-logged windows.
+    bad = [it for it in items
+           if (drafts._hm_to_min(it.get("start_time")) is None
+               or drafts._hm_to_min(it.get("end_time")) is None
+               or drafts._hm_to_min(it.get("end_time")) <= drafts._hm_to_min(it.get("start_time"))
+               or "placeholder" in (it.get("note") or "").lower())]
+    for it in bad:
+        print(f"[inference] dropped invalid draft {it.get('start_time')}-{it.get('end_time')}: "
+              f"{(it.get('note') or '')[:60]}")
+        items.remove(it)
+    for it in items:
+        tid = it.get("ticket_id")
+        if not tid:
+            continue
+        ev = (it.get("evidence") or "").strip().lower()
+        conf = float(it.get("confidence") or 0)
+        weak = ev == "client_only" or conf < MIN_MATCH_CONFIDENCE
+        if not weak:
+            continue
+        t = tmap.get(tid)
+        client = (t.client if t else "") or it.get("client") or ""
+        why = "client-name only" if ev == "client_only" else f"low confidence {conf:.0%}"
+        print(f"[inference] demoted #{tid} {it.get('start_time')}-{it.get('end_time')}: "
+              f"{why}; reason={it.get('match_reason') or '-'}")
+        it["ticket_id"] = None
+        it["client"] = client
+        it["subject"] = f"(unassigned — {why}" + (f"; client: {client}" if client else "") + ")"
+        it["confidence"] = 0.0
+        it["match_reason"] = (it.get("match_reason") or "") + f" [demoted: {why}]"
+        n += 1
+    return n
 
 
 class Draft(BaseModel):
@@ -36,6 +83,8 @@ class Draft(BaseModel):
     confidence: float = 0.0
     no_charge: bool = False
     activity_refs: List[str] = Field(default_factory=list)
+    evidence: str = ""        # ticket_number | subject_topic | client_only
+    match_reason: str = ""
 
 
 class Unmatched(BaseModel):
@@ -66,9 +115,18 @@ DIGEST rules (entries):
   AFK period itself. Skip noise (lock screens, login redirects, <30s blips).
 
 DRAFT rules:
-- Only draft an entry when activity plausibly relates to a specific ticket.
-  Client-name (profile vs ticket client) and subject-keyword matches are
-  strong evidence. Weak guesses go to unmatched instead.
+- TICKET MATCHING IS ABOUT THE PROBLEM, NOT THE CLIENT. Set ticket_id only
+  when the feed shows work on the specific issue in that ticket's SUBJECT
+  (same system, feature, error, request, or person). A client's name or
+  profile appearing is NOT evidence by itself -- a client has many tickets
+  and most work for a client is not on any open ticket. If the only link is
+  the client, ticket_id null (quick time), name the client in the note, and
+  let the technician assign it. A wrong ticket is far worse than none.
+- Every draft states its evidence: "ticket_number" (the id appears in the
+  feed), "subject_topic" (the feed clearly concerns the ticket's subject), or
+  "client_only" (nothing beyond the client). client_only => ticket_id null.
+  match_reason: one sentence quoting the feed activity that ties to the
+  ticket's SUBJECT; if that sentence would only name the client, no match.
 - Merge adjacent/related activity for the same ticket into ONE draft.
 - DRAFTS MUST NOT OVERLAP IN TIME. Each minute of the day belongs to at most
   one draft. When activity for two tickets interleaves, split the time at the
@@ -93,10 +151,10 @@ DRAFT rules:
   * A scheduled meeting with NO corroborating activity in the feed is not
     billable work -- omit it or leave it unmatched with reason "calendar
     only, no activity". Do not fabricate a draft from the calendar alone.
-- Round to nearest 5 min. Minimum entry 10 min. confidence: 0.9+ explicit
-  ticket/subject evidence in the ACTIVITY FEED; 0.7-0.9 strong feed-based
-  client+topic match; below 0.7, or calendar-only with no feed support ->
-  unmatched.
+- Round to nearest 5 min. Minimum entry 10 min. confidence: 0.9+ the ticket
+  number itself appears in the feed; 0.75-0.9 the feed unmistakably concerns
+  the ticket's subject; anything less, or calendar-only with no feed
+  support -> ticket_id null. Never give a client-only link more than 0.5.
 - General/internal activity (email triage, team meetings, this app) ->
   unmatched with a short reason. Never invent tickets; only use provided ids.
 - Every draft's time range must correspond to entries in your digest."""
@@ -227,6 +285,7 @@ def build_combined(adapter, target: Optional[date_cls] = None,
                           "client": t.client if t else "?",
                           "subject": t.subject if t else "?",
                           "status": "draft"})
+    demote_weak_matches(new_items, tmap)
     for u in resp.unmatched:
         tr = (u.time_range or "").split("-")
         if len(tr) != 2:
@@ -342,6 +401,7 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
             "subject": t.subject if t else "?",
             "status": "draft",
         })
+    demoted = demote_weak_matches(new_items, tmap)
     # Unmatched activity becomes pickable drafts with no ticket
     # (would post as Quick Time unless the user assigns a ticket id).
     for u in resp.unmatched:
@@ -391,6 +451,8 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
                        + (f" ({', '.join(covered_lines)})" if covered_lines else ""))
     if skipped_ignored:
         reasons.append(f"{skipped_ignored} skipped: previously ignored")
+    if demoted:
+        reasons.append(f"{demoted} left unassigned (client-name-only match)")
     if not new_items and not reasons and proposed == 0:
         reasons.append("the AI found nothing billable in the activity log"
                        + (f" ({digest_span})" if digest_span else ""))
@@ -433,10 +495,13 @@ Produce draft time entries that FILL THE GAPS, and ONLY the gaps. Rules:
   an entry for it marked as away time: ticket_id null, no_charge true,
   note "AFK - away from keyboard (no activity captured)". Do not fabricate
   billable work for idle time.
-- When activity in a gap clearly relates to a ticket (client/profile or
-  subject match) or a meeting, attribute it and write a professional note.
-  Otherwise ticket_id null (quick time) with a factual note of what the
-  activity shows.
+- Set ticket_id only when the activity shows work on the specific issue in
+  that ticket's SUBJECT. The client name or profile alone is NOT evidence --
+  a client has many tickets and most work is on none of them. Client-only
+  link => ticket_id null (quick time), name the client in the note. State
+  evidence ("ticket_number" | "subject_topic" | "client_only") and a
+  one-sentence match_reason quoting the activity that ties to the subject.
+  Confidence below 0.75 => ticket_id null.
 - Round to 5 minutes, minimum 10-minute entries, entries non-overlapping."""
 
 
@@ -531,6 +596,7 @@ def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
                                             else "(quick time)"),
             "status": "draft",
         })
+    demote_weak_matches(new_items, tmap)
     # Backstops: only keep entries inside gaps, drop ignored, drop anything
     # overlapping already-logged windows.
     def _in_gap(it):
