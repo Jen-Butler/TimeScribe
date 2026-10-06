@@ -363,20 +363,55 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
     # Preserve already-posted drafts, replace the rest
     existing = drafts.load(target)
     posted = [x for x in existing if x.get("status") == "posted"]
+    proposed = len(new_items)
+    for it in new_items:
+        print(f"[inference] proposed {it.get('start_time')}-{it.get('end_time')} "
+              f"#{it.get('ticket_id') or 'quick'}: {(it.get('note') or '')[:80]}")
     new_items = drafts.filter_ignored(target, new_items)
+    skipped_ignored = proposed - len(new_items)
+    before_cov = len(new_items)
     new_items = drafts.filter_covered(new_items, covered)   # hard backstop
+    skipped_covered = before_cov - len(new_items)
     drafts.save(target, posted + new_items)
     print(f"[inference] {len(new_items)} drafts built "
-          f"({len(resp.drafts)} matched, {len(resp.unmatched)} unmatched)"
+          f"({len(resp.drafts)} matched, {len(resp.unmatched)} unmatched, "
+          f"{skipped_covered} already logged, {skipped_ignored} ignored)"
           + (f" -- {halo_note}" if halo_note else ""))
+
+    # Explain the outcome -- a bare "0 drafts" is indistinguishable from a
+    # failure, when usually it just means the day is already on the timesheet.
+    covered_min = sum(e - s for s, e in covered)
+    digest_span = ""
+    if entries:
+        digest_span = f"{entries[0]['time_range'].split('-')[0].strip()}–" \
+                      f"{entries[-1]['time_range'].split('-')[-1].strip()}"
+    reasons = []
+    if skipped_covered:
+        reasons.append(f"{skipped_covered} skipped: already logged in Halo"
+                       + (f" ({', '.join(covered_lines)})" if covered_lines else ""))
+    if skipped_ignored:
+        reasons.append(f"{skipped_ignored} skipped: previously ignored")
+    if not new_items and not reasons and proposed == 0:
+        reasons.append("the AI found nothing billable in the activity log"
+                       + (f" ({digest_span})" if digest_span else ""))
 
     out = {
         "drafts": new_items,
         "unmatched": [u.model_dump() for u in resp.unmatched],
         "preserved_posted": len(posted),
+        "proposed": proposed,
+        "skipped_covered": skipped_covered,
+        "skipped_ignored": skipped_ignored,
+        "covered_minutes": covered_min,
+        "covered_windows": covered_lines,
     }
+    notes = []
+    if reasons:
+        notes.append("; ".join(reasons))
     if halo_note:
-        out["note"] = f"Built without ticket matching: {halo_note}. Assign tickets by hand."
+        notes.append(f"Built without ticket matching: {halo_note}. Assign tickets by hand.")
+    if notes:
+        out["note"] = " ".join(notes)
     return out
 
 

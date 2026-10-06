@@ -1287,8 +1287,14 @@ $('btnDigest').onclick = async () => {
     if (r.error) setMsg(r.error, false);
     else {
       const n = (r.drafts || []).length;
-      setMsg('Built ' + n + ' draft' + (n === 1 ? '' : 's') + ' from the activity log.'
-        + (r.note ? ' ' + r.note : ''), !r.note);
+      let msg = 'Built ' + n + ' draft' + (n === 1 ? '' : 's') + ' from the activity log.';
+      if (n === 0 && r.skipped_covered) {
+        const hrs = Math.round((r.covered_minutes || 0) / 6) / 10;
+        msg = 'Nothing new to draft — ' + hrs + 'h of this day is already logged in Halo'
+            + ((r.covered_windows || []).length ? ' (' + r.covered_windows.join(', ') + ')' : '')
+            + '. Use "Fill timesheet gaps" to draft any unlogged time.';
+      } else if (r.note) msg += ' ' + r.note;
+      setMsg(msg, n > 0 || !!r.skipped_covered);
     }
     loadDrafts(); loadSummary();
   } catch (e) { setMsg('Run digest failed: ' + e.message, false); }
