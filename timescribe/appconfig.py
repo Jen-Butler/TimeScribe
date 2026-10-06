@@ -17,6 +17,16 @@ DEFAULTS: Dict[str, Any] = {
     "psa_type": "halo",
     "halo_base_url": "",
     "halo_client_id": "",
+    # How TimeScribe signs in to Halo:
+    #   "pkce"               browser sign-in as you (Authorisation Code +
+    #                        PKCE, loopback redirect). Default.
+    #   "client_credentials" API application + secret; no browser and no
+    #                        redirect URI. For tenants whose CDN/WAF blocks
+    #                        loopback redirects. Secret -> credential store.
+    "halo_auth_mode": "pkce",
+    # client_credentials only: the token is an application, not a person, so
+    # the agent to act as (timesheet to read, who time is attributed to).
+    "halo_agent_id": 0,
     "anthropic_model_default": "claude-haiku-4-5",
     "anthropic_model_planner": "claude-sonnet-4-6",
     "timezone": "America/New_York",

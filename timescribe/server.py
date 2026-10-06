@@ -22,12 +22,18 @@ def get_adapter() -> Optional[HaloPSAAdapter]:
     cfg = appconfig.load()
     if not cfg.get("halo_base_url") or not cfg.get("halo_client_id"):
         return None
+    mode = (cfg.get("halo_auth_mode") or "pkce").lower()
+    agent = int(cfg.get("halo_agent_id") or 0) or None
     if (_adapter is None
             or _adapter.base_url != cfg["halo_base_url"].rstrip("/")
-            or _adapter.client_id != cfg["halo_client_id"]):
+            or _adapter.client_id != cfg["halo_client_id"]
+            or _adapter.auth_mode != mode
+            or _adapter.agent_id_override != agent):
         _adapter = HaloPSAAdapter(
             base_url=cfg["halo_base_url"],
             client_id=cfg["halo_client_id"],
+            auth_mode=mode,
+            agent_id=agent,
         )
     return _adapter
 
@@ -98,6 +104,8 @@ def ui_png(asset: str):
 class ConfigUpdate(BaseModel):
     halo_base_url: Optional[str] = None
     halo_client_id: Optional[str] = None
+    halo_auth_mode: Optional[str] = None        # "pkce" | "client_credentials"
+    halo_agent_id: Optional[int] = None         # client_credentials: agent to act as
     timezone: Optional[str] = None
     work_start: Optional[str] = None
     work_end: Optional[str] = None
@@ -148,10 +156,32 @@ def status():
         "openai_key_set": appconfig.get_secret("openai_api_key") is not None,
         "org_ai_key_set": appconfig.get_secret("org_ai_key") is not None,
         "llm_provider": cfg.get("llm_provider", "anthropic"),
+        "halo_auth_mode": (cfg.get("halo_auth_mode") or "pkce"),
+        "halo_secret_set": bool(a and a.load_client_secret()),
         "ai_health": __import__("timescribe.llm", fromlist=["ai_health"]).ai_health(),
         "screenshots": __import__("timescribe.screenshots", fromlist=["status"]).status(),
         "config": {k: v for k, v in cfg.items() if "key" not in k.lower()},
     }
+
+
+class HaloSecret(BaseModel):
+    secret: str
+
+
+@app.post("/api/halo/secret")
+def halo_secret(body: HaloSecret):
+    """Store the Halo API application's client secret (client_credentials
+    mode). Credential store only -- never written to the config file."""
+    a = get_adapter()
+    if a is None:
+        raise HTTPException(400, "Set Halo base URL and Client ID first")
+    s = (body.secret or "").strip()
+    if not s:
+        a.clear_client_secret()
+        return {"ok": True, "set": False}
+    a.save_client_secret(s)
+    a._access_token = None   # force a fresh token with the new secret
+    return {"ok": True, "set": True}
 
 
 @app.post("/api/config")

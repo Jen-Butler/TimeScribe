@@ -222,3 +222,28 @@ def refresh_access_token(*,
                       timeout=30)
     _raise_with_body(resp)
     return resp.json()
+
+
+def client_credentials_token(*,
+                             token_endpoint: str,
+                             client_id: str,
+                             client_secret: str,
+                             scope: str = "all",
+                             tenant: str = "") -> dict:
+    """Client Credentials grant: a token for an API application, with NO
+    browser and NO redirect URI. Used when the Halo tenant's CDN/WAF blocks
+    the loopback redirect that the native PKCE flow needs. No refresh token
+    is issued; callers simply request a new token when one expires."""
+    data = {
+        "grant_type":    "client_credentials",
+        "client_id":     client_id,
+        "client_secret": client_secret,
+        "scope":         scope,
+    }
+    if tenant:
+        data["tenant"] = tenant
+    resp = httpx.post(token_endpoint, data=data,
+                      headers={"Content-Type": "application/x-www-form-urlencoded"},
+                      timeout=30)
+    _raise_with_body(resp)
+    return resp.json()

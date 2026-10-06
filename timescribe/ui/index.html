@@ -220,6 +220,23 @@
     <input id="haloUrl" placeholder="https://yourcompany.halopsa.com">
     <label>Halo OAuth Client ID</label>
     <input id="haloClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    <label>Sign-in method</label>
+    <select id="haloAuthMode" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:14px">
+      <option value="pkce">Browser sign-in as me (Authorisation Code / Native app)</option>
+      <option value="client_credentials">API application + secret (Client Credentials — no browser)</option>
+    </select>
+    <div id="haloCcRow" style="display:none;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">
+        Use this when your Halo's CDN blocks the normal browser sign-in. In Halo:
+        Configuration → Integrations → Halo API → Applications → create an app with
+        <strong>Authentication Method: Client ID and Secret</strong>, give it the
+        permissions you need, and paste its Client ID above and secret here.
+        The secret is stored in Windows Credential Manager, never in a config file.</div>
+      <label style="font-size:12px">Client secret <span id="haloSecretState" style="color:var(--muted)"></span></label>
+      <input id="haloClientSecret" type="password" placeholder="paste secret (leave blank to keep the stored one)">
+      <label style="font-size:12px">Act as agent (ID) <span style="color:var(--muted)">— the API app isn't a person; time is logged and attributed to this agent</span></label>
+      <input id="haloAgentId" type="number" placeholder="e.g. 27" style="width:160px">
+    </div>
     <label>AI provider</label>
     <select id="llmProvider" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:14px">
       <option value="anthropic">Anthropic (Claude)</option>
@@ -1127,6 +1144,10 @@ async function refreshStatus() {
     $('menuWho').style.whiteSpace = 'pre-line';
     if (s.config.halo_base_url) $('haloUrl').value = s.config.halo_base_url;
     if (s.config.halo_client_id) $('haloClientId').value = s.config.halo_client_id;
+    $('haloAuthMode').value = s.halo_auth_mode || 'pkce';
+    $('haloAgentId').value = s.config.halo_agent_id ? String(s.config.halo_agent_id) : '';
+    $('haloSecretState').textContent = s.halo_secret_set ? '(stored ✓)' : '(not set)';
+    applyAuthModeUI();
     if (s.llm_provider) $('llmProvider').value = s.llm_provider;
     $('pillKey').textContent = 'AI key (' + (s.llm_provider || 'anthropic') + '): ' +
       ((s.llm_provider === 'openai' ? s.openai_key_set : s.anthropic_key_set) ? 'set' : 'missing');
@@ -1153,12 +1174,27 @@ async function refreshStatus() {
   } catch (e) { setMsg('Status check failed: ' + e.message, false); }
 }
 
+function applyAuthModeUI() {
+  const cc = $('haloAuthMode').value === 'client_credentials';
+  $('haloCcRow').style.display = cc ? '' : 'none';
+  $('btnConnect').textContent = cc ? 'Connect (no browser)' : 'Connect to Halo';
+}
+$('haloAuthMode').onchange = applyAuthModeUI;
+
 $('btnSave').onclick = async () => {
   try {
     await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({halo_base_url: $('haloUrl').value.trim(),
                             halo_client_id: $('haloClientId').value.trim(),
+                            halo_auth_mode: $('haloAuthMode').value,
+                            halo_agent_id: parseInt($('haloAgentId').value, 10) || 0,
                             llm_provider: $('llmProvider').value})});
+    const secret = $('haloClientSecret').value.trim();
+    if (secret) {
+      await api('/api/halo/secret', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({secret})});
+      $('haloClientSecret').value = '';
+    }
     const key = $('anthropicKey').value.trim();
     if (key) {
       await api('/api/secret', {method:'POST', headers:{'Content-Type':'application/json'},

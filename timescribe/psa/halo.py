@@ -19,26 +19,38 @@ from timescribe.psa.adapter import (
 from timescribe.oauth.pkce import (
     generate_pkce_pair, generate_state, build_authorize_url,
     start_callback_server, open_browser,
-    exchange_code_for_tokens, refresh_access_token,
+    exchange_code_for_tokens, refresh_access_token, client_credentials_token,
     CALLBACK_PORT, CALLBACK_PATH,
 )
 
 
 KEYRING_SERVICE = "timescribe.halo"
 KEYRING_KEY = "refresh_token"
+KEYRING_SECRET_KEY = "client_secret"
 
 
 class HaloPSAAdapter(PSAAdapter):
-    def __init__(self, base_url: str, client_id: str, tenant_key: str = "default"):
+    def __init__(self, base_url: str, client_id: str, tenant_key: str = "default",
+                 auth_mode: str = "pkce", agent_id: Optional[int] = None):
         """
         base_url:   e.g. 'https://yourcompany.halopsa.com'
         client_id:  from the OAuth app you registered in Halo admin
         tenant_key: identifier for this tenant's stored token
                     (lets one machine hold tokens for multiple Halo instances)
+        auth_mode:  'pkce' (browser sign-in as the user; default) or
+                    'client_credentials' (API app + secret; no browser and no
+                    redirect -- for tenants whose CDN/WAF blocks loopback
+                    redirects). The secret lives in the OS credential store.
+        agent_id:   in client_credentials mode the token is an *application*
+                    identity, not a person, so the agent to act as (whose
+                    timesheet to read, who posted time is attributed to) is
+                    set explicitly here.
         """
         self.base_url = base_url.rstrip("/")
         self.client_id = client_id
         self.tenant_key = tenant_key
+        self.auth_mode = (auth_mode or "pkce").lower()
+        self.agent_id_override = int(agent_id) if agent_id else None
         self._access_token: Optional[str] = None
         self._access_token_expires_at: float = 0.0
         # Serializes token refresh across the scheduler / UI / MCP threads.
@@ -86,25 +98,76 @@ class HaloPSAAdapter(PSAAdapter):
         except keyring.errors.PasswordDeleteError:
             pass
 
+    # Client secret (client_credentials mode) -- credential store only,
+    # never the config file.
+    def _secret_key(self) -> str:
+        return f"{self.tenant_key}:{KEYRING_SECRET_KEY}"
+
+    def load_client_secret(self) -> Optional[str]:
+        return keyring.get_password(KEYRING_SERVICE, self._secret_key())
+
+    def save_client_secret(self, secret: str) -> None:
+        keyring.set_password(KEYRING_SERVICE, self._secret_key(), secret)
+
+    def clear_client_secret(self) -> None:
+        try:
+            keyring.delete_password(KEYRING_SERVICE, self._secret_key())
+        except keyring.errors.PasswordDeleteError:
+            pass
+
+    @property
+    def uses_client_credentials(self) -> bool:
+        return self.auth_mode == "client_credentials"
+
     # --- PSAAdapter interface ---
 
     def sign_out(self) -> None:
         """Forget all credentials for this tenant: live access token,
-        cached agent record, and the stored refresh token. The next
-        connect() runs a fresh OAuth flow (any user, any instance)."""
+        cached agent record, and the stored refresh token / client secret.
+        The next connect() runs a fresh sign-in (any user, any instance)."""
         self._access_token = None
         self._access_token_expires_at = 0.0
         self._current_agent = None
         self._clear_refresh_token()
+        self.clear_client_secret()
 
     def is_authenticated(self) -> bool:
-        # Either we have a live access_token, or we have a refresh_token we can use.
+        # A live access_token works in either mode.
         if self._access_token and time.time() < self._access_token_expires_at - 30:
             return True
+        if self.uses_client_credentials:
+            # With a stored secret we can mint a token at any time.
+            return self.load_client_secret() is not None
         return self._load_refresh_token() is not None
 
+    def _client_credentials_login(self) -> None:
+        """Mint an access token from the stored client secret. No browser,
+        no redirect URI -- nothing for a CDN/WAF to block."""
+        from timescribe import appconfig as _appconfig
+        secret = self.load_client_secret()
+        if not secret:
+            raise RuntimeError("No client secret stored -- enter it in Settings")
+        tokens = client_credentials_token(
+            token_endpoint=self.token_endpoint,
+            client_id=self.client_id,
+            client_secret=secret,
+            scope="all",
+            tenant=_appconfig.load().get("halo_tenant", ""),
+        )
+        self._access_token = tokens.get("access_token")
+        self._access_token_expires_at = time.time() + int(tokens.get("expires_in", 3600))
+        if not self._access_token:
+            raise RuntimeError("Halo returned no access_token for client credentials")
+        print(f"[halo] Authenticated (client credentials). Token expires in "
+              f"{tokens.get('expires_in')}s.")
+
     def connect(self) -> None:
-        """Full OAuth PKCE flow. Opens the user's browser, waits for callback."""
+        """Sign in. client_credentials: mint a token from the stored secret.
+        pkce: full browser flow, waits for the loopback callback."""
+        if self.uses_client_credentials:
+            self._current_agent = None
+            self._client_credentials_login()
+            return
         if self.is_authenticated():
             try:
                 self._ensure_access_token()
@@ -175,6 +238,11 @@ class HaloPSAAdapter(PSAAdapter):
         with self._token_lock:
             # Another thread may have refreshed while we waited for the lock.
             if self._fresh_enough():
+                return self._access_token
+
+            if self.uses_client_credentials:
+                # No refresh token in this grant: just mint a fresh one.
+                self._client_credentials_login()
                 return self._access_token
 
             refresh = self._load_refresh_token()
@@ -256,10 +324,20 @@ class HaloPSAAdapter(PSAAdapter):
     # --- Concrete implementations (stubs -- filled in Phase 2) ---
 
     def get_current_agent(self) -> dict:
-        """Return the agent record for whoever authenticated via OAuth.
+        """The agent this session acts as. PKCE: whoever signed in
+        (/Agent/me). Client credentials: the token is an application, not a
+        person, so the configured agent is looked up explicitly -- that's
+        whose timesheet is read and who posted time is attributed to.
         Caches the result for the lifetime of the adapter instance."""
         if getattr(self, "_current_agent", None) is None:
-            self._current_agent = self._api_get("Agent/me")
+            if self.agent_id_override:
+                self._current_agent = self._api_get(f"Agent/{self.agent_id_override}")
+            else:
+                self._current_agent = self._api_get("Agent/me")
+                if self.uses_client_credentials:
+                    print("[halo] client_credentials mode with no agent configured: "
+                          "acting as the API application itself -- set the agent "
+                          "in Settings so time is attributed to you")
         return self._current_agent
 
     @property
@@ -322,6 +400,12 @@ class HaloPSAAdapter(PSAAdapter):
             "hiddenfromuser": False,
             "sendemail": False,
         }
+        # With an application token the action would otherwise be attributed
+        # to the API app; pin it to the configured agent so the timesheet,
+        # billing and "who" all show the technician.
+        if self.agent_id_override:
+            item["who_agentid"] = str(self.agent_id_override)
+            item["agent_id"] = str(self.agent_id_override)
         if entry.private_note:
             item["private_note"] = entry.private_note
         # outcome_id is instance-specific (each Halo instance defines its own
