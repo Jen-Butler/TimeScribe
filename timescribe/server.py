@@ -784,9 +784,12 @@ def drafts_suggest(day: str = None):
     if not _digest.load_digest(target):
         return {"drafts": [], "error": "No digest for this day yet — run the "
                 "digest first, or use Purge & rebuild."}
+    # Halo is only the ticket-matching context, not the source of the drafts.
+    # If it isn't connected, generate_drafts still builds unticketed drafts
+    # from the activity log (it catches the failed ticket fetch itself).
     a = get_adapter()
-    if a is None or not a.is_authenticated():
-        raise HTTPException(401, "Halo not connected")
+    if a is None:
+        raise HTTPException(400, "Set Halo base URL and Client ID first")
     try:
         return _inference.generate_drafts(a, target)
     except Exception as exc:

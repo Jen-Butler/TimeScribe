@@ -1287,7 +1287,8 @@ $('btnDigest').onclick = async () => {
     if (r.error) setMsg(r.error, false);
     else {
       const n = (r.drafts || []).length;
-      setMsg('Built ' + n + ' draft' + (n === 1 ? '' : 's') + ' from the activity log.', true);
+      setMsg('Built ' + n + ' draft' + (n === 1 ? '' : 's') + ' from the activity log.'
+        + (r.note ? ' ' + r.note : ''), !r.note);
     }
     loadDrafts(); loadSummary();
   } catch (e) { setMsg('Run digest failed: ' + e.message, false); }

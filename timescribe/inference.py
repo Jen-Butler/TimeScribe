@@ -279,9 +279,19 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
         return {"drafts": [], "unmatched": [],
                 "error": "No digest for this day. Run the digest first."}
 
-    tickets = adapter.list_open_tickets()
-    if not tickets:
-        return {"drafts": [], "unmatched": [], "error": "No open tickets found."}
+    # The activity log is the real source; Halo tickets are only the
+    # matching context. If Halo is unreachable or has no open tickets, still
+    # build the drafts -- just unticketed (quick time) for the user to assign
+    # by hand -- rather than failing with nothing.
+    tickets = []
+    halo_note = ""
+    try:
+        tickets = adapter.list_open_tickets() or []
+    except Exception as exc:
+        halo_note = f"Halo unavailable ({str(exc)[:120]})"
+        print(f"[inference] {halo_note}; building unticketed drafts")
+    if not tickets and not halo_note:
+        halo_note = "no open tickets to match against"
 
     ticket_lines = [f"[#{t.id}] [{t.client}] {t.subject[:100]}" for t in tickets]
     digest_lines = [f"{e['time_range']} — {e['summary']}" for e in entries]
@@ -306,8 +316,11 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
         + (f"\n\nTIME ALREADY LOGGED ({len(covered_lines)} windows) -- do "
            "NOT produce any draft or unmatched item overlapping these:\n"
            + "\n".join(covered_lines) if covered_lines else "")
-        + f"\n\nOPEN TICKETS ({len(ticket_lines)}):\n"
-        + "\n".join(ticket_lines)
+        + (f"\n\nOPEN TICKETS ({len(ticket_lines)}):\n" + "\n".join(ticket_lines)
+           if ticket_lines else
+           "\n\nOPEN TICKETS: none available (" + halo_note + "). Put EVERY "
+           "entry in \"unmatched\" with a factual summary; the user will assign "
+           "tickets by hand. Do not invent ticket ids.")
         + "\n\nProduce the JSON described in the system prompt."
     )
 
@@ -353,12 +366,18 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
     new_items = drafts.filter_ignored(target, new_items)
     new_items = drafts.filter_covered(new_items, covered)   # hard backstop
     drafts.save(target, posted + new_items)
+    print(f"[inference] {len(new_items)} drafts built "
+          f"({len(resp.drafts)} matched, {len(resp.unmatched)} unmatched)"
+          + (f" -- {halo_note}" if halo_note else ""))
 
-    return {
+    out = {
         "drafts": new_items,
         "unmatched": [u.model_dump() for u in resp.unmatched],
         "preserved_posted": len(posted),
     }
+    if halo_note:
+        out["note"] = f"Built without ticket matching: {halo_note}. Assign tickets by hand."
+    return out
 
 
 GAPFILL_SYSTEM_PROMPT = """You are a billing assistant for an MSP technician.
