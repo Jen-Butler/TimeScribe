@@ -692,11 +692,13 @@ def digest_rebuild(day: str = None):
             result = _inf.build_combined(a, target, replace_drafts=True)  # explicit rebuild
             entries = [e.model_dump() if hasattr(e, "model_dump") else e
                        for e in result.get("entries", [])]
+            drafts_built = result.get("drafts", [])
         else:
             entries = _digest.run_digest(target)     # full-day: replaces digest
             _dr.save(target, posted)                 # drop unposted only after success
+            drafts_built = []
         return {"ok": True, "count": len(entries), "entries": entries,
-                "preserved_posted": len(posted)}
+                "drafts": drafts_built, "preserved_posted": len(posted)}
     except Exception as exc:
         raise HTTPException(500, str(exc))
 

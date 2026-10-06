@@ -510,16 +510,14 @@
       <input type="time" id="timeFrom" style="width:auto;padding:4px 8px;font-size:12px" title="optional window start">
       <span style="color:var(--muted)">–</span>
       <input type="time" id="timeTo" style="width:auto;padding:4px 8px;font-size:12px" title="optional window end">
-      <button id="btnDigest" style="margin:0 0 0 8px;padding:4px 12px;font-size:12px">Run digest</button>
-      <button id="btnRebuild" style="margin:0 0 0 4px;padding:4px 12px;font-size:12px;background:#f59e0b" title="Delete this day's digest and unposted drafts, then rebuild from raw activity (posted entries are kept)">Purge &amp; rebuild</button>
+      <button id="btnDigest" style="margin:0 0 0 8px;padding:4px 12px;font-size:12px" title="Build the time entry drafts from the existing activity log (one AI pass, matches tickets). Does not re-read activity.">Run digest</button>
+      <button id="btnRebuild" style="margin:0 0 0 4px;padding:4px 12px;font-size:12px;background:#f59e0b" title="Re-read raw activity to rebuild the activity log, then build the time entry drafts from it (posted entries are kept)">Purge &amp; run digest</button>
     </h2>
     <div id="sumStrip" style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 0;font-size:12px;color:var(--muted)"></div>
   </div>
 
   <div class="card">
     <h2>Draft time entries
-      <button id="btnGenDrafts" style="margin:0;padding:4px 12px;font-size:12px">Import from digest</button>
-      <button id="btnSuggest" style="margin:0;padding:4px 12px;font-size:12px" title="Rebuild this day's drafts from the existing digest and match them to tickets (one AI pass; does not regenerate the digest)">AI ticket match</button>
       <button id="btnFillGaps" style="margin:0;padding:4px 12px;font-size:12px" title="Find uncovered windows on the Halo timesheet and suggest factual entries from activity to fill them">Fill timesheet gaps</button>
       <button id="btnAddManual" style="margin:0;padding:4px 12px;font-size:12px;background:#a78bfa" title="Add a blank entry to fill in by hand">Add manual entry</button>
       <button id="btnPostDrafts" style="margin:0;padding:4px 12px;font-size:12px;background:var(--good)">Post approved</button>
@@ -1261,30 +1259,48 @@ async function loadDigest() {
   } catch (e) { /* ignore */ }
 }
 
+// Purge & run digest: re-read raw activity -> rebuild the activity log ->
+// build the time entry drafts from it. The one action that regenerates the log.
+async function purgeAndRunDigest() {
+  const r = await api('/api/digest/rebuild?day=' + selDay(), {method:'POST'});
+  await loadDigest();
+  loadDrafts(); loadSummary();
+  const n = (r.drafts || []).length;
+  setMsg('Rebuilt the activity log (' + r.count + ' entries) and built ' + n
+    + ' draft' + (n === 1 ? '' : 's') + ' (' + r.preserved_posted + ' posted preserved).', true);
+}
+
+// Run digest: build the time entry drafts from the EXISTING activity log
+// (ticket-matched, one AI pass). Doesn't re-read activity. If there's no
+// log yet for the day, there's nothing to run from, so do the full build.
 $('btnDigest').onclick = async () => {
   $('btnDigest').disabled = true;
   $('btnDigest').textContent = 'Running…';
   try {
-    let q = '/api/digest/run?day=' + selDay();
-    if ($('timeFrom').value) q += '&start=' + $('timeFrom').value;
-    if ($('timeTo').value)   q += '&end=' + $('timeTo').value;
-    await api(q, {method:'POST'});
-    await loadDigest();
-  } catch (e) { setMsg('Digest failed: ' + e.message, false); }
+    const d = await api('/api/digest?day=' + selDay());
+    if (!(d.entries || []).length) {
+      await purgeAndRunDigest();   // nothing to run from yet
+      return;
+    }
+    if (!confirm('Build this day\'s drafts from the current activity log? Your unposted drafts will be replaced (posted entries are kept).')) return;
+    const r = await api('/api/drafts/suggest?day=' + selDay(), {method:'POST'});
+    if (r.error) setMsg(r.error, false);
+    else {
+      const n = (r.drafts || []).length;
+      setMsg('Built ' + n + ' draft' + (n === 1 ? '' : 's') + ' from the activity log.', true);
+    }
+    loadDrafts(); loadSummary();
+  } catch (e) { setMsg('Run digest failed: ' + e.message, false); }
   finally { $('btnDigest').disabled = false; $('btnDigest').textContent = 'Run digest'; }
 };
 
 $('btnRebuild').onclick = async () => {
-  if (!confirm('Purge this day\'s digest and unposted drafts, then rebuild from raw activity? Posted entries are kept.')) return;
+  if (!confirm('Re-read raw activity to rebuild this day\'s activity log, then rebuild the drafts from it? Unposted drafts are replaced; posted entries are kept.')) return;
   $('btnRebuild').disabled = true;
   $('btnRebuild').textContent = 'Rebuilding…';
-  try {
-    const r = await api('/api/digest/rebuild?day=' + selDay(), {method:'POST'});
-    await loadDigest();
-    loadDrafts(); loadSummary();
-    setMsg('Rebuilt: ' + r.count + ' digest entries (' + r.preserved_posted + ' posted entries preserved).', true);
-  } catch (e) { setMsg('Rebuild failed: ' + e.message, false); }
-  finally { $('btnRebuild').disabled = false; $('btnRebuild').textContent = 'Purge & rebuild'; }
+  try { await purgeAndRunDigest(); }
+  catch (e) { setMsg('Purge & run digest failed: ' + e.message, false); }
+  finally { $('btnRebuild').disabled = false; $('btnRebuild').textContent = 'Purge & run digest'; }
 };
 
 loadDigest();
@@ -1680,7 +1696,7 @@ async function loadDrafts() {
 
     const el = $('draftList');
     el.innerHTML = active.length ? '' :
-      '<span style="color:var(--muted)">No drafts. Run the digest, then click generate.</span>';
+      '<span style="color:var(--muted)">No drafts yet — click Run digest to build them.</span>';
     sortDraftPairs(active);
     active.forEach(([d, i], pos) => {
       const nbr = {
@@ -1765,18 +1781,6 @@ async function draftAction(i, action) {
     loadDrafts();
   } catch (e) { setMsg('Draft action failed: ' + e.message, false); }
 }
-
-$('btnGenDrafts').onclick = async () => {
-  $('btnGenDrafts').disabled = true; $('btnGenDrafts').textContent = 'Importing…';
-  try {
-    const r = await api('/api/drafts/generate?day=' + selDay(), {method:'POST'});
-    if (r.error) setMsg2(r.error, false);
-    else setMsg2('Imported ' + r.drafts.length + ' entr' + (r.drafts.length===1?'y':'ies') +
-                 ' from the digest. Assign tickets (or leave blank for Quick Time), approve, post.', true);
-    loadDrafts(); loadSummary();
-  } catch (e) { setMsg2('Import failed: ' + e.message, false); }
-  finally { $('btnGenDrafts').disabled = false; $('btnGenDrafts').textContent = 'Import from digest'; }
-};
 
 let _posting = false;
 $('btnPostDrafts').onclick = () => runPosting();
@@ -2002,20 +2006,6 @@ async function splitDraft(i) {
 }
 
 // ---- AI ticket match (optional LLM pass) ----
-$('btnSuggest').onclick = async () => {
-  if (!confirm('Rebuild this day\'s drafts from the current digest and match them to '
-    + 'tickets? Your unposted drafts will be replaced (posted entries are kept). '
-    + 'The digest itself is not regenerated.')) return;
-  $('btnSuggest').disabled = true; $('btnSuggest').textContent = 'Matching…';
-  try {
-    const r = await api('/api/drafts/suggest?day=' + selDay(), {method:'POST'});
-    if (r.error) setMsg2(r.error, false);
-    else setMsg2('AI matched ' + r.drafts.length + ' draft(s) to tickets from the digest.', true);
-    loadDrafts(); loadSummary();
-  } catch (e) { setMsg2('AI match failed: ' + e.message, false); }
-  finally { $('btnSuggest').disabled = false; $('btnSuggest').textContent = 'AI ticket match'; }
-};
-
 $('btnFillGaps').onclick = async () => {
   $('btnFillGaps').disabled = true; $('btnFillGaps').textContent = 'Filling…';
   try {
@@ -2036,7 +2026,7 @@ function applyProviderUI() {
   $('orgAiRow').style.display       = (p === 'halo_org') ? '' : 'none';
   $('mcpOnlyNote').style.display    = (p === 'mcp') ? '' : 'none';
   const aiDisabled = (p === 'mcp');
-  for (const id of ['btnDigest', 'btnSuggest', 'btnFillGaps']) {
+  for (const id of ['btnDigest', 'btnRebuild', 'btnFillGaps']) {
     $(id).disabled = aiDisabled;
     $(id).title = aiDisabled ? 'Disabled in MCP-only mode (no API key)' : '';
   }
