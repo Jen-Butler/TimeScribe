@@ -37,8 +37,11 @@ for tid in sorted(tickets):
         acts = rows_of(a._api_get("Actions", params={"ticket_id": tid, "count": 200}), "actions") or []
     except Exception as exc:
         print("ACTIONS_ERR", tid, str(exc)[:100]); continue
+    is_quick = (tickets[tid].get("summary") or "").startswith("Quick Time")
     for x in acts:
-        if x.get("who") != "Test" or not (x.get("timetaken") or 0) > 0:
+        # Quick Time keeps the hours on the ticket, not the action, so don't
+        # require timetaken on those.
+        if x.get("who") != "Test" or (not is_quick and not (x.get("timetaken") or 0) > 0):
             continue
         when = (x.get("datetime") or x.get("actiondatecreated") or "")[:16]
         if when and when < since:
