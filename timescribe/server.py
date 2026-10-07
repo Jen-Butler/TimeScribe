@@ -142,6 +142,7 @@ def status():
     a = get_adapter()
     halo_connected = False
     agent = None
+    halo_warning = None
     if a and a.is_authenticated():
         halo_connected = True
         try:
@@ -149,7 +150,9 @@ def status():
             agent = {"id": rec.get("id"), "name": rec.get("name")}
         except Exception:
             agent = None
+        halo_warning = a.attribution_warning()
     return {
+        "halo_warning": halo_warning,
         "halo_configured": bool(cfg.get("halo_base_url") and cfg.get("halo_client_id")),
         "halo_connected": halo_connected,
         "agent": agent,
@@ -266,8 +269,10 @@ def halo_connect():
             raise HTTPException(409, "Previous sign-in is still shutting down -- try once more")
     try:
         a.connect()   # opens browser, blocks until callback or timeout
+        warning = a.recheck_attribution()
         rec = a.get_current_agent()
-        return {"ok": True, "agent": {"id": rec.get("id"), "name": rec.get("name")}}
+        return {"ok": True, "agent": {"id": rec.get("id"), "name": rec.get("name")},
+                "warning": warning}
     except Exception as exc:
         msg = str(exc)
         if "cancelled" in msg.lower() or "superseded" in msg.lower():
@@ -1049,12 +1054,23 @@ def drafts_update(body: DraftUpdate, day: str = None):
     return item
 
 
+def _guard_attribution(a):
+    """Refuse to post when Halo would attribute the time to the API
+    application instead of the technician (client-credentials tokens with
+    no 'Agent to log in as'). Posting anyway puts hours on nobody's
+    timesheet and they have to be deleted and re-entered by hand."""
+    w = a.attribution_warning()
+    if w:
+        raise HTTPException(409, "Not posting: " + w)
+
+
 @app.post("/api/drafts/post")
 def drafts_post(day: str = None):
     """Post all APPROVED drafts to the PSA."""
     a = get_adapter()
     if a is None or not a.is_authenticated():
         raise HTTPException(401, "Halo not connected")
+    _guard_attribution(a)
     target = _date.fromisoformat(day) if day else _date.today()
     items = _drafts.load(target)
     results = []
@@ -1082,6 +1098,7 @@ def drafts_post_one(body: DraftIndex, day: str = None):
     a = get_adapter()
     if a is None or not a.is_authenticated():
         raise HTTPException(401, "Halo not connected")
+    _guard_attribution(a)
     target = _date.fromisoformat(day) if day else _date.today()
     items = _drafts.load(target)
     if not (0 <= body.index < len(items)):

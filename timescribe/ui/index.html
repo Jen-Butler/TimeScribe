@@ -1146,6 +1146,18 @@ async function refreshStatus() {
     $('pillHalo').textContent = 'Halo: ' + (s.halo_connected ? 'connected' :
                                  (s.halo_configured ? 'configured, not connected' : 'not set up'));
     $('pillHalo').className = 'pill ' + (s.halo_connected ? 'ok' : 'err');
+    // Attribution: with an application token Halo may post time as the
+    // application ("Test") instead of the technician. Posting is blocked
+    // server-side while this is true; make sure the user sees why.
+    if (s.halo_warning) {
+      $('pillHalo').className = 'pill err';
+      $('pillHalo').textContent = 'Halo: posting blocked — time would be attributed to the API app';
+      $('pillHalo').title = s.halo_warning;
+      if (window._haloWarnShown !== s.halo_warning) {
+        window._haloWarnShown = s.halo_warning;
+        showToast(s.halo_warning, false, 12000);
+      }
+    } else { $('pillHalo').title = ''; }
     $('pillKey').textContent = 'Anthropic key: ' + (s.anthropic_key_set ? 'set' : 'missing');
     $('pillKey').className = 'pill ' + (s.anthropic_key_set ? 'ok' : 'err');
     $('menuWho').textContent = s.agent

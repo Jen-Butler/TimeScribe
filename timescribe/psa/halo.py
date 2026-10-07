@@ -140,6 +140,13 @@ class HaloPSAAdapter(PSAAdapter):
             return self.load_client_secret() is not None
         return self._load_refresh_token() is not None
 
+    def recheck_attribution(self) -> Optional[str]:
+        """Forget the cached attribution verdict (after the user fixes the
+        application's 'Agent to log in as' in Halo) and re-evaluate."""
+        self._attr_warning = "unset"
+        self._current_agent = None
+        return self.attribution_warning()
+
     def _client_credentials_login(self) -> None:
         """Mint an access token from the stored client secret. No browser,
         no redirect URI -- nothing for a CDN/WAF to block."""
@@ -343,6 +350,39 @@ class HaloPSAAdapter(PSAAdapter):
     @property
     def current_agent_id(self) -> int:
         return int(self.get_current_agent().get("id"))
+
+    def attribution_warning(self) -> Optional[str]:
+        """Client-credentials only. Halo attributes every action an
+        application token creates to the application's "Agent to log in as"
+        and IGNORES who_agentid in the payload. If that agent isn't the
+        configured technician, posted time lands under the application's
+        name (e.g. who="Test") on nobody's timesheet. Agent/me reveals the
+        login-as agent, so compare it to the configured one. Cached."""
+        if not self.uses_client_credentials:
+            return None
+        if getattr(self, "_attr_warning", "unset") != "unset":
+            return self._attr_warning
+        warning = None
+        try:
+            me = self._api_get("Agent/me")
+            me_id = int(me.get("id") or 0)
+            me_name = me.get("name") or "?"
+            want = self.agent_id_override
+            if me_id <= 1 or me_name.lower() == "unassigned":
+                warning = ("Halo will attribute posted time to the API application, not "
+                           "to you. In Halo: Configuration > Integrations > HaloPSA API > "
+                           "your application > set 'Agent to log in as' to yourself.")
+            elif want and me_id != want:
+                warning = (f"Halo's API application logs in as {me_name} (#{me_id}) but "
+                           f"TimeScribe is set to agent #{want}; posted time will be "
+                           f"attributed to {me_name}. Change 'Agent to log in as' on the "
+                           "application in Halo, or the agent in Settings.")
+        except Exception as exc:
+            print(f"[halo] attribution check failed: {exc}")
+        self._attr_warning = warning
+        if warning:
+            print(f"[halo] WARNING: {warning}")
+        return warning
 
     def list_open_tickets(self, agent_id=None, include_recent_actions=True) -> List[Ticket]:
         if agent_id is None:
