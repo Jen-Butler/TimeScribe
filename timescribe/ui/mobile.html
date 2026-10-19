@@ -160,6 +160,7 @@
 
   let day = new Date(); day.setHours(0,0,0,0);
   let view = 'entries', drafts = [], tickets = null, pickIndex = null, saveTimers = {}, status = {}, minFocus = 10, flashIndex = null, mergeAnchor = null;
+  let sortMode = null;   // null = follow the desktop's default sort until changed here (kept for this session only)
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const api = async (path, opts) => {
     const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
@@ -185,6 +186,7 @@
     try {
       const [s, dr, sum] = await Promise.all([api('/api/status'), api('/api/drafts?day='+d), api('/api/summary?day='+d)]);
       status = s; minFocus = parseInt((s.config||{}).min_focus_seconds, 10) || 0;
+      if (sortMode == null) sortMode = (s.config||{}).draft_sort_default || 'smart';
       $('who').textContent = s.agent ? s.agent.name : 'Halo off';
       $('who').className = 'chip ' + (s.halo_connected ? 'ok' : 'err');
       drafts = dr.drafts || [];
@@ -213,11 +215,25 @@
     if (view === 'timesheet') return renderTimesheet();
     const m = $('main');
     const order = {draft:0, approved:1, rejected:2, posted:3};
-    const idx = drafts.map((d,i) => i).sort((a,b) => (order[drafts[a].status]||0) - (order[drafts[b].status]||0) || (drafts[a].start_time||'').localeCompare(drafts[b].start_time||''));
+    const byStart = (a,b) => (drafts[a].start_time||'').localeCompare(drafts[b].start_time||'');
+    const byEnd = (a,b) => (drafts[a].end_time||'').localeCompare(drafts[b].end_time||'');
+    const cmp = {
+      smart: (a,b) => (order[drafts[a].status]||0) - (order[drafts[b].status]||0) || byStart(a,b),
+      start_asc: byStart, start_desc: (a,b) => byStart(b,a), end_asc: byEnd, end_desc: (a,b) => byEnd(b,a),
+    }[sortMode || 'smart'];
+    const idx = drafts.map((d,i) => i).sort(cmp);
     if (!drafts.length) { m.innerHTML = '<div class="empty">No time entries for this day yet.<br>Tap <b>Run digest</b> to build them from the activity log, or <b>+ Entry</b> to add one by hand.</div>'; return; }
+    const sortBar = `<div class="row" style="margin:0 0 8px;font-size:13px;color:var(--muted)"><span class="grow">${drafts.length} entr${drafts.length===1?'y':'ies'}</span>Sort
+      <select id="sortSel" style="background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:14px">
+        <option value="smart"${sortMode==='smart'?' selected':''}>Status</option>
+        <option value="start_asc"${sortMode==='start_asc'?' selected':''}>Start ↑</option>
+        <option value="start_desc"${sortMode==='start_desc'?' selected':''}>Start ↓</option>
+        <option value="end_asc"${sortMode==='end_asc'?' selected':''}>End ↑</option>
+        <option value="end_desc"${sortMode==='end_desc'?' selected':''}>End ↓</option>
+      </select></div>`;
     const banner = mergeAnchor != null && drafts[mergeAnchor]
       ? `<div class="mergebar"><span class="grow">Merging <b>${esc(drafts[mergeAnchor].start_time)}–${esc(drafts[mergeAnchor].end_time)}</b> — tap <b>Merge here</b> on the entry that should absorb it</span><button class="ghost sm" id="mergeCancel">Cancel</button></div>` : '';
-    m.innerHTML = banner + idx.map(i => {
+    m.innerHTML = sortBar + banner + idx.map(i => {
       const d = drafts[i], st = d.status || 'draft', posted = st === 'posted';
       const mergeable = mergeAnchor != null && i !== mergeAnchor && !posted;
       const t = d.ticket_id ? `#${d.ticket_id} · ${esc(d.client||'')} — ${esc(d.subject||'')}` : 'Quick Time (no ticket)';
@@ -244,6 +260,7 @@
     }).join('');
     if (flashIndex != null) { const c = $('card'+flashIndex); if (c) c.scrollIntoView({behavior:'smooth', block:'center'}); flashIndex = null; }
     const mc = $('mergeCancel'); if (mc) mc.onclick = () => { mergeAnchor = null; render(); };
+    const ss = $('sortSel'); if (ss) ss.onchange = () => { sortMode = ss.value; render(); };
   }
 
   // Time fields: free typing with a numeric keyboard. Accepts 930, 0930,
