@@ -33,7 +33,11 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
   .card.approved{border-color:var(--good)} .card.posted{opacity:.6} .card.flash{outline:2px solid var(--accent)}
   .times{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
-  .times input[type=time]{background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:16px;width:122px}
+  .times input.tmi{background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 6px;font-size:17px;width:76px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+  .times input.tmi.bad{border-color:var(--bad)}
+  .mergebar{position:sticky;top:0;z-index:4;background:#172554;border:1px solid var(--accent);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px;display:flex;gap:8px;align-items:center}
+  .card.mergeable{border-color:var(--accent);border-style:dashed}
+  .card.anchor{outline:2px solid var(--accent)}
   .ticket{margin-top:8px;display:flex;align-items:center;gap:8px}
   .ticket .t{flex:1;min-width:0;font-size:14px;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .ticket .t.none{color:var(--muted)}
   textarea{width:100%;min-height:84px;margin-top:8px;background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:15px/1.4 inherit;resize:vertical}
@@ -155,7 +159,7 @@
   }
 
   let day = new Date(); day.setHours(0,0,0,0);
-  let view = 'entries', drafts = [], tickets = null, pickIndex = null, saveTimers = {}, status = {}, minFocus = 10, flashIndex = null;
+  let view = 'entries', drafts = [], tickets = null, pickIndex = null, saveTimers = {}, status = {}, minFocus = 10, flashIndex = null, mergeAnchor = null;
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const api = async (path, opts) => {
     const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
@@ -211,13 +215,16 @@
     const order = {draft:0, approved:1, rejected:2, posted:3};
     const idx = drafts.map((d,i) => i).sort((a,b) => (order[drafts[a].status]||0) - (order[drafts[b].status]||0) || (drafts[a].start_time||'').localeCompare(drafts[b].start_time||''));
     if (!drafts.length) { m.innerHTML = '<div class="empty">No time entries for this day yet.<br>Tap <b>Run digest</b> to build them from the activity log, or <b>+ Entry</b> to add one by hand.</div>'; return; }
-    m.innerHTML = idx.map(i => {
+    const banner = mergeAnchor != null && drafts[mergeAnchor]
+      ? `<div class="mergebar"><span class="grow">Merging <b>${esc(drafts[mergeAnchor].start_time)}–${esc(drafts[mergeAnchor].end_time)}</b> — tap <b>Merge here</b> on the entry that should absorb it</span><button class="ghost sm" id="mergeCancel">Cancel</button></div>` : '';
+    m.innerHTML = banner + idx.map(i => {
       const d = drafts[i], st = d.status || 'draft', posted = st === 'posted';
+      const mergeable = mergeAnchor != null && i !== mergeAnchor && !posted;
       const t = d.ticket_id ? `#${d.ticket_id} · ${esc(d.client||'')} — ${esc(d.subject||'')}` : 'Quick Time (no ticket)';
-      return `<div class="card ${st}${flashIndex === i ? ' flash' : ''}" data-i="${i}" id="card${i}">
+      return `<div class="card ${st}${flashIndex === i ? ' flash' : ''}${mergeable ? ' mergeable' : ''}${mergeAnchor === i ? ' anchor' : ''}" data-i="${i}" id="card${i}">
         <div class="times">
-          <input type="time" value="${esc(d.start_time)}" data-f="start_time" ${posted?'disabled':''}> –
-          <input type="time" value="${esc(d.end_time)}" data-f="end_time" ${posted?'disabled':''}>
+          <input class="tmi" inputmode="numeric" autocomplete="off" enterkeyhint="done" maxlength="5" value="${esc(d.start_time)}" data-f="start_time" ${posted?'disabled':''}> –
+          <input class="tmi" inputmode="numeric" autocomplete="off" enterkeyhint="done" maxlength="5" value="${esc(d.end_time)}" data-f="end_time" ${posted?'disabled':''}>
           <span class="grow"></span>
           ${posted ? '<span class="chip ok">posted</span>' : `<button class="ghost sm" data-act="ignore" title="Ignore">✕</button>`}
         </div>
@@ -227,6 +234,7 @@
         <div class="row" style="margin-top:8px">
           ${posted ? '' : `<label class="nc" style="margin:0"><input type="checkbox" data-f="no_charge" ${d.no_charge?'checked':''}> No charge</label>`}
           <span class="grow"></span>
+          ${mergeable ? '<button class="accent sm" data-act="mergehere">Merge here</button>' : (posted || mergeAnchor != null ? '' : '<button class="ghost sm" data-act="merge">Merge</button>')}
           <button class="ghost sm" data-act="activity">Activity</button>
         </div>
         ${posted ? '' : `<div class="actions">
@@ -235,7 +243,32 @@
       </div>`;
     }).join('');
     if (flashIndex != null) { const c = $('card'+flashIndex); if (c) c.scrollIntoView({behavior:'smooth', block:'center'}); flashIndex = null; }
+    const mc = $('mergeCancel'); if (mc) mc.onclick = () => { mergeAnchor = null; render(); };
   }
+
+  // Time fields: free typing with a numeric keyboard. Accepts 930, 0930,
+  // 9:30, 17:30, 5p / 5:30pm; normalises to HH:MM (24h) on blur/enter.
+  function parseTime(v) {
+    v = String(v||'').trim().toLowerCase(); if (!v) return null;
+    const ap = /([ap])m?$/.exec(v); if (ap) v = v.slice(0, ap.index).trim();
+    let h, m;
+    if (v.includes(':')) { const [a,b] = v.split(':'); h = parseInt(a,10); m = parseInt(b||'0',10); }
+    else { const d = v.replace(/\D/g,''); if (!d) return null; if (d.length <= 2) { h = +d; m = 0; } else { h = parseInt(d.slice(0,-2),10); m = parseInt(d.slice(-2),10); } }
+    if (isNaN(h) || isNaN(m) || m > 59) return null;
+    if (ap) { if (ap[1] === 'p' && h < 12) h += 12; if (ap[1] === 'a' && h === 12) h = 0; }
+    if (h > 23) return null;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
+  $('main').addEventListener('focusin', e => { if (e.target.classList && e.target.classList.contains('tmi')) setTimeout(() => e.target.select(), 0); });
+  $('main').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('tmi')) e.target.blur(); });
+  $('main').addEventListener('focusout', e => {
+    const el = e.target; if (!el.classList || !el.classList.contains('tmi')) return;
+    const card = el.closest('.card'), i = +card.dataset.i, d = drafts[i];
+    const t = parseTime(el.value);
+    if (!t) { el.classList.add('bad'); el.value = d[el.dataset.f] || ''; setTimeout(() => el.classList.remove('bad'), 1200); return; }
+    el.classList.remove('bad'); el.value = t;
+    if (t !== d[el.dataset.f]) { clearTimeout(saveTimers[i]); saveCard(i, card); }
+  });
 
   // ---- Activity view: the day's digest, tap an entry to see what was open ----
   async function renderActivity() {
@@ -337,19 +370,20 @@
   // ---- edits: autosave (debounced), approve/unapprove, ignore, pick, activity ----
   $('main').addEventListener('input', e => {
     const card = e.target.closest('.card'); if (!card) return;
-    const i = +card.dataset.i, f = e.target.dataset.f; if (!f) return;
+    const i = +card.dataset.i, f = e.target.dataset.f; if (!f || e.target.classList.contains('tmi')) return;
     clearTimeout(saveTimers[i]); saveTimers[i] = setTimeout(() => saveCard(i, card), f === 'note' ? 900 : 200);
   });
   $('main').addEventListener('change', e => {
-    const card = e.target.closest('.card'); if (!card || !e.target.dataset.f) return;
+    const card = e.target.closest('.card'); if (!card || !e.target.dataset.f || e.target.classList.contains('tmi')) return;
     clearTimeout(saveTimers[+card.dataset.i]); saveCard(+card.dataset.i, card);
   });
   async function saveCard(i, card) {
     const d = drafts[i]; if (!d || d.status === 'posted') return;
+    const st = parseTime(card.querySelector('[data-f=start_time]').value) || d.start_time;
+    const en = parseTime(card.querySelector('[data-f=end_time]').value) || d.end_time;
     const body = {index: i, ticket_id: d.ticket_id || null,
       note: card.querySelector('[data-f=note]').value,
-      start_time: card.querySelector('[data-f=start_time]').value,
-      end_time: card.querySelector('[data-f=end_time]').value,
+      start_time: st, end_time: en,
       no_charge: card.querySelector('[data-f=no_charge]')?.checked || false};
     try {
       await api('/api/drafts/update?day='+iso(day), {method:'POST', body: JSON.stringify(body)});
@@ -365,10 +399,16 @@
         await api('/api/drafts/action?day='+iso(day), {method:'POST', body: JSON.stringify({index:i, action:act})}); await load();
       } else if (act === 'ignore') {
         await api('/api/drafts/ignore?day='+iso(day), {method:'POST', body: JSON.stringify({index:i})}); toast('Ignored'); await load();
+      } else if (act === 'merge') {
+        mergeAnchor = i; render(); window.scrollTo({top: 0, behavior: 'smooth'});
+      } else if (act === 'mergehere') {
+        const other = mergeAnchor; mergeAnchor = null;
+        await api('/api/drafts/merge?day='+iso(day), {method:'POST', body: JSON.stringify({anchor_index: i, other_index: other})});
+        toast('Merged'); flashIndex = i > other ? i - 1 : i; await load();
       } else if (act === 'pick') {
         pickIndex = i; openPicker();
       } else if (act === 'activity') {
-        const s = hm2min(card.querySelector('[data-f=start_time]').value), en = hm2min(card.querySelector('[data-f=end_time]').value);
+        const s = hm2min(parseTime(card.querySelector('[data-f=start_time]').value)), en = hm2min(parseTime(card.querySelector('[data-f=end_time]').value));
         if (s == null || en == null || en <= s) return toast('Set valid start/end times first', false);
         openActivity(s, en, `${fmtClk(s)}–${fmtClk(en)}`);
       }
@@ -437,8 +477,8 @@
   };
   $('postClose').onclick = () => $('postSheet').classList.remove('open');
 
-  $('prev').onclick = () => { day.setDate(day.getDate()-1); load(); };
-  $('next').onclick = () => { day.setDate(day.getDate()+1); load(); };
+  $('prev').onclick = () => { mergeAnchor = null; day.setDate(day.getDate()-1); load(); };
+  $('next').onclick = () => { mergeAnchor = null; day.setDate(day.getDate()+1); load(); };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
   load();
 })();
