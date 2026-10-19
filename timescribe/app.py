@@ -147,6 +147,12 @@ def create_desktop_shortcut() -> str:
 def _run_server():
     port = appconfig.load().get("ui_port", 8770)
     from timescribe.server import app as fastapi_app
+    # Optional LAN listener for paired phones (Settings > Mobile).
+    try:
+        from timescribe import mobile
+        mobile.apply(fastapi_app)
+    except Exception as exc:
+        print(f"[mobile] startup: {exc}")
     uvicorn.run(fastapi_app, host="127.0.0.1", port=port, log_level="warning")
 
 

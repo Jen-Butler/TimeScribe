@@ -54,6 +54,10 @@ DEFAULTS: Dict[str, Any] = {
     # Global noise floor: app-focus windows shorter than this are dropped
     # from the activity view, the digest feed and ticket matching alike.
     "min_focus_seconds": 10,
+    # Mobile access: second listener on the LAN for paired phones only.
+    "mobile_enabled": False,
+    "mobile_port": 8771,
+    "mobile_devices": [],
     "eod_time": "17:15",
     # Which weekdays the scheduler runs (0=Mon .. 6=Sun). Default Mon-Fri.
     "digest_weekdays": [0, 1, 2, 3, 4],

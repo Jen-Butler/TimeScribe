@@ -209,6 +209,7 @@
     <button class="subtab" data-ssec="appearance" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Appearance</button>
     <button class="subtab" data-ssec="prompts" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Prompts</button>
     <button class="subtab" data-ssec="screenshots" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Screenshots</button>
+    <button class="subtab" data-ssec="mobile" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Mobile</button>
     <button class="subtab" data-ssec="system" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">System</button>
   </div>
 
@@ -472,6 +473,40 @@
     <div id="shotsMsg" style="font-size:12px;margin-top:6px;color:var(--muted)"></div>
   </div>
   </div><!-- /ssec screenshots -->
+
+  <div class="ssec" data-ssec="mobile" style="display:none">
+    <h3 style="margin-top:0">Mobile access</h3>
+    <p style="color:var(--muted);font-size:13px;margin-top:0">Review and post the day's time entries from your phone's browser, on the same Wi-Fi. Nothing is stored on the phone except a pairing key; posting still goes through this PC's Halo connection. Only phones you pair here can connect, and only to the review pages.</p>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="mobEnabled" style="width:auto;margin:0"> Enable mobile access on this network
+    </label>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <label style="margin:0;font-size:12px;color:var(--muted)">Port
+        <input id="mobPort" type="number" min="1024" max="65535" value="8771" style="width:90px;padding:4px 6px;font-size:13px;margin-left:4px"></label>
+      <span id="mobUrl" style="font-size:13px"></span>
+      <span id="mobState" class="pill" style="font-size:11px"></span>
+    </div>
+    <div id="mobFw" style="margin-top:10px;font-size:13px"></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button type="button" id="mobSave">Save</button>
+      <button type="button" id="mobPair">Pair a phone</button>
+      <button type="button" id="mobFwBtn" style="display:none">Allow through Windows Firewall</button>
+    </div>
+    <div id="mobPairBox" style="display:none;margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--card-bg)">
+      <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+        <div id="mobQr" style="background:#fff;padding:8px;border-radius:8px;line-height:0"></div>
+        <div style="flex:1;min-width:240px">
+          <div style="font-weight:600">Scan with your phone's camera</div>
+          <div style="color:var(--muted);font-size:13px;margin-top:4px">or open this address on the phone:</div>
+          <div id="mobPairUrl" style="font-family:monospace;font-size:13px;word-break:break-all;margin-top:4px"></div>
+          <div style="margin-top:8px;font-size:13px">Code <strong id="mobCode" style="font-family:monospace;font-size:16px;letter-spacing:.08em"></strong> · valid for 10 minutes, single use</div>
+          <div style="color:var(--muted);font-size:12px;margin-top:8px">After the first visit the phone is remembered — no code next time. Revoke it below if the phone is lost.</div>
+        </div>
+      </div>
+    </div>
+    <h4 style="margin:18px 0 6px">Paired phones</h4>
+    <div id="mobDevices" style="font-size:13px;color:var(--muted)">None yet.</div>
+  </div><!-- /ssec mobile -->
 
   <div class="ssec" data-ssec="system" style="display:none">
   <div class="card" id="updateCard">
@@ -936,7 +971,60 @@ function showSettingsSection(sec) {
   });
   if (sec === 'prompts') loadPrompts();
   if (sec === 'screenshots') loadShotsSettings();
+  if (sec === 'mobile') loadMobile();
 }
+
+// ---- Settings > Mobile: LAN listener + phone pairing ----
+async function loadMobile() {
+  try {
+    const m = await api('/api/mobile/info');
+    $('mobEnabled').checked = !!m.enabled;
+    $('mobPort').value = String(m.port || 8771);
+    $('mobUrl').innerHTML = m.enabled ? 'Phone address: <code>' + m.url + '</code>' : '';
+    $('mobState').textContent = m.enabled ? (m.listening ? 'listening' : 'not listening') : 'off';
+    $('mobState').className = 'pill ' + (m.enabled ? (m.listening ? 'ok' : 'err') : '');
+    $('mobPair').disabled = !m.enabled;
+    const fwKnown = m.firewall_rule !== null && m.firewall_rule !== undefined;
+    $('mobFwBtn').style.display = (m.enabled && fwKnown && !m.firewall_rule) ? '' : 'none';
+    $('mobFw').innerHTML = !m.enabled ? '' : (!fwKnown ? '' : (m.firewall_rule
+      ? '<span class="ok-text">Windows Firewall rule present (private networks only).</span>'
+      : '<span style="color:var(--warn,#f59e0b)">Windows Firewall will block the phone until port ' + m.port + ' is allowed. Use the button below (asks for admin once).</span>'));
+    $('mobDevices').innerHTML = (m.devices && m.devices.length) ? m.devices.map(d =>
+      `<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+         <span style="flex:1;color:var(--text)">${d.name}</span>
+         <span>paired ${(d.created||'').slice(0,10)} · last seen ${(d.last_seen||'').replace('T',' ').slice(0,16)}</span>
+         <button type="button" data-rev="${d.id}" style="margin:0;padding:3px 10px;font-size:12px">Revoke</button>
+       </div>`).join('') : 'None yet.';
+    $('mobDevices').querySelectorAll('button[data-rev]').forEach(b => b.onclick = async () => {
+      if (!confirm('Revoke this phone? It will need to be paired again.')) return;
+      await api('/api/mobile/devices/revoke', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: b.dataset.rev})});
+      loadMobile();
+    });
+  } catch (e) { $('mobState').textContent = 'error: ' + e.message; }
+}
+$('mobSave').onclick = async () => {
+  try {
+    await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({mobile_enabled: $('mobEnabled').checked, mobile_port: parseInt($('mobPort').value, 10) || 8771})});
+    showToast($('mobEnabled').checked ? 'Mobile access on.' : 'Mobile access off.', true);
+    setTimeout(loadMobile, 600);
+  } catch (e) { showToast('Save failed: ' + e.message, false); }
+};
+$('mobPair').onclick = async () => {
+  try {
+    const r = await api('/api/mobile/pair', {method:'POST'});
+    $('mobPairBox').style.display = '';
+    $('mobQr').innerHTML = r.qr_svg || '<div style="color:#333;font-size:12px;padding:20px">QR unavailable — type the address</div>';
+    $('mobPairUrl').textContent = r.url;
+    $('mobCode').textContent = r.code.replace(/(.{4})(.{4})/, '$1-$2');
+    const svg = $('mobQr').querySelector('svg'); if (svg) { svg.setAttribute('width', '180'); svg.setAttribute('height', '180'); }
+  } catch (e) { showToast('Pairing failed: ' + e.message, false); }
+};
+$('mobFwBtn').onclick = async () => {
+  showToast('Windows will ask for permission to add the firewall rule…', true);
+  try { await api('/api/mobile/firewall', {method:'POST'}); } catch (e) { /* ignore */ }
+  setTimeout(loadMobile, 1500);
+};
 document.querySelectorAll('#settingsSubnav button').forEach(b =>
   b.onclick = () => showSettingsSection(b.dataset.ssec));
 

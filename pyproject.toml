@@ -20,6 +20,7 @@ dependencies = [
     "pystray>=0.19",
     "pillow>=10.0",
     "mcp>=1.0",
+    "segno>=1.6",
 ]
 
 [project.scripts]

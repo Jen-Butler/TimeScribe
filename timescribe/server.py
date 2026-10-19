@@ -55,6 +55,109 @@ def index():
     return _ui_path().read_text(encoding="utf-8")
 
 
+# ---------- Mobile access (LAN listener, paired devices only) ----------
+
+from timescribe import mobile as _mobile
+from fastapi import Request
+from fastapi.responses import RedirectResponse, Response as _Resp
+
+# What a paired phone may call. Everything else (settings, secrets, logs,
+# update/restart, screenshots, mobile admin) stays loopback-only.
+_MOBILE_ALLOW_PREFIXES = (
+    "/m", "/favicon.ico", "/manifest.webmanifest", "/icon-",
+    "/api/status", "/api/summary", "/api/drafts", "/api/digest",
+    "/api/tickets/mine", "/api/tickets/search", "/api/ticket",
+    "/api/timesheet", "/api/posted", "/api/scheduler/status",
+)
+
+
+@app.middleware("http")
+async def _mobile_gate(request: Request, call_next):
+    host = request.client.host if request.client else ""
+    if _mobile.is_loopback(host):
+        return await call_next(request)
+    path = request.url.path
+    # Not from this PC: must be LAN, mobile must be on, path must be allowed.
+    if not _mobile.enabled() or not _mobile.is_private(host):
+        return _Resp("Not available", status_code=403)
+    if not any(path == p or path.startswith(p) for p in _MOBILE_ALLOW_PREFIXES):
+        return _Resp("Not available on mobile", status_code=403)
+    if path.startswith("/m/pair"):
+        return await call_next(request)               # pairing is the login
+    if _mobile.verify_token(request.cookies.get(_mobile.COOKIE)) is None:
+        if path.startswith("/api/"):
+            return _Resp('{"error":"not paired"}', status_code=401,
+                         media_type="application/json")
+        return HTMLResponse(_mobile_page("unpaired"), status_code=401)
+    return await call_next(request)
+
+
+def _mobile_page(mode: str = "app") -> str:
+    p = _ui_path().parent / "mobile.html"
+    html = p.read_text(encoding="utf-8") if p.exists() else "<h2>mobile.html missing</h2>"
+    return html.replace("__MODE__", mode)
+
+
+@app.get("/m", response_class=HTMLResponse)
+def mobile_index():
+    return _mobile_page("app")
+
+
+@app.get("/m/pair")
+def mobile_pair(code: str = "", request: Request = None):
+    """The phone lands here once from the QR/URL. A valid code becomes a
+    long-lived device cookie; the browser is then sent to /m."""
+    ua = (request.headers.get("user-agent", "") if request else "")[:200]
+    name = "Phone"
+    for key in ("iPhone", "iPad", "Android", "Pixel", "Samsung", "Windows", "Macintosh"):
+        if key in ua:
+            name = key
+            break
+    token = _mobile.redeem_pairing_code(code, name)
+    if not token:
+        return HTMLResponse(_mobile_page("badcode"), status_code=400)
+    resp = RedirectResponse(url="/m", status_code=303)
+    resp.set_cookie(_mobile.COOKIE, token, max_age=_mobile.TOKEN_MAX_AGE_S,
+                    httponly=True, samesite="lax", path="/")
+    return resp
+
+
+@app.get("/api/mobile/info")
+def mobile_info():
+    return {
+        "enabled": _mobile.enabled(),
+        "listening": _mobile.listening(),
+        "port": _mobile.port(),
+        "lan_ip": _mobile.lan_ip(),
+        "url": _mobile.base_url() + "/m",
+        "firewall_rule": _mobile.firewall_rule_exists(),
+        "devices": _mobile.list_devices(),
+    }
+
+
+@app.post("/api/mobile/pair")
+def mobile_pair_new():
+    if not _mobile.enabled():
+        raise HTTPException(400, "Enable mobile access first")
+    _mobile.apply(app)
+    return _mobile.new_pairing_code()
+
+
+class _DeviceId(BaseModel):
+    id: str
+
+
+@app.post("/api/mobile/devices/revoke")
+def mobile_revoke(body: _DeviceId):
+    return {"ok": _mobile.revoke_device(body.id)}
+
+
+@app.post("/api/mobile/firewall")
+def mobile_firewall():
+    return {"ok": True, "result": _mobile.open_firewall(),
+            "firewall_rule": _mobile.firewall_rule_exists()}
+
+
 @app.get("/favicon.ico")
 def favicon():
     from fastapi.responses import FileResponse, Response
@@ -115,6 +218,8 @@ class ConfigUpdate(BaseModel):
     digest_weekdays: Optional[list] = None      # [0..6], Mon=0
     digest_interval_minutes: Optional[int] = None
     min_focus_seconds: Optional[int] = None
+    mobile_enabled: Optional[bool] = None
+    mobile_port: Optional[int] = None
     combined_digest_drafts: Optional[bool] = None
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
     ticket_browser_profile: Optional[str] = None  # Edge profile-directory
@@ -164,7 +269,8 @@ def status():
         "halo_secret_set": bool(a and a.load_client_secret()),
         "ai_health": __import__("timescribe.llm", fromlist=["ai_health"]).ai_health(),
         "screenshots": __import__("timescribe.screenshots", fromlist=["status"]).status(),
-        "config": {k: v for k, v in cfg.items() if "key" not in k.lower()},
+        "config": {k: v for k, v in cfg.items()
+                   if "key" not in k.lower() and k != "mobile_devices"},
     }
 
 
@@ -194,6 +300,11 @@ def update_config(body: ConfigUpdate):
     for k, v in body.model_dump(exclude_none=True).items():
         cfg[k] = v
     appconfig.save(cfg)
+    # Start/stop the LAN listener to match the saved mobile settings.
+    try:
+        _mobile.apply(app)
+    except Exception as exc:
+        print(f"[mobile] apply failed: {exc}")
     return {"ok": True}
 
 
