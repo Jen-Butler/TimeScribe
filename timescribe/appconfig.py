@@ -56,7 +56,8 @@ DEFAULTS: Dict[str, Any] = {
     "min_focus_seconds": 10,
     # Mobile access: second listener on the LAN for paired phones only.
     "mobile_enabled": False,
-    "mobile_port": 8771,
+    "mobile_port": 8771,          # HTTP (pairing/setup); HTTPS uses port+1
+    "mobile_https": True,         # local-CA HTTPS so the phone can "Install app"
     "mobile_devices": [],
     "eod_time": "17:15",
     # Which weekdays the scheduler runs (0=Mon .. 6=Sun). Default Mon-Fri.

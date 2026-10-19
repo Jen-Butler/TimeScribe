@@ -6,61 +6,69 @@
 <meta name="theme-color" content="#0f172a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TimeScribe">
 <title>TimeScribe</title>
 <link rel="icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="/m/manifest.webmanifest">
 <style>
   :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;
         --good:#22c55e;--bad:#ef4444;--warn:#f59e0b;--input:#0b1220;--btn:#334155}
   *{box-sizing:border-box}
-  html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-            -webkit-text-size-adjust:100%}
+  html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}
   body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
   header{position:sticky;top:0;z-index:5;background:var(--bg);padding:calc(8px + env(safe-area-inset-top)) 12px 8px;border-bottom:1px solid var(--line)}
-  .row{display:flex;align-items:center;gap:8px}
-  .grow{flex:1}
+  .row{display:flex;align-items:center;gap:8px} .grow{flex:1}
   h1{font-size:15px;margin:0;color:var(--muted);font-weight:600;letter-spacing:.02em}
   .day{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
-  .day button{width:44px;height:40px;font-size:20px}
-  .day .d{font-size:18px;font-weight:700}
+  .day button{width:44px;height:40px;font-size:20px} .day .d{font-size:18px;font-weight:700}
   .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
   .chip{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--muted)}
   .chip.ok{border-color:var(--good);color:var(--good)} .chip.err{border-color:var(--bad);color:var(--bad)}
+  .seg{display:flex;margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{flex:1;border-radius:0;background:transparent;color:var(--muted);padding:9px 0;font-size:14px}
+  .seg button.on{background:var(--card);color:var(--text)}
   main{padding:10px 12px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
-  .card.approved{border-color:var(--good)} .card.posted{opacity:.6}
+  .card.approved{border-color:var(--good)} .card.posted{opacity:.6} .card.flash{outline:2px solid var(--accent)}
   .times{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
   .times input[type=time]{background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:16px;width:122px}
   .ticket{margin-top:8px;display:flex;align-items:center;gap:8px}
-  .ticket .t{flex:1;min-width:0;font-size:14px;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ticket .t.none{color:var(--muted)}
+  .ticket .t{flex:1;min-width:0;font-size:14px;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .ticket .t.none{color:var(--muted)}
   textarea{width:100%;min-height:84px;margin-top:8px;background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:15px/1.4 inherit;resize:vertical}
-  .meta{font-size:12px;color:var(--muted);margin-top:4px;display:flex;justify-content:space-between;gap:8px}
+  .meta{font-size:12px;color:var(--muted);margin-top:4px}
   .actions{display:flex;gap:8px;margin-top:10px}
   button{appearance:none;border:0;border-radius:10px;background:var(--btn);color:var(--text);padding:12px 14px;font-size:15px;font-weight:600;touch-action:manipulation}
   button:active{filter:brightness(1.2)} button:disabled{opacity:.45}
-  button.good{background:var(--good);color:#052e16} button.bad{background:#7f1d1d} button.accent{background:var(--accent);color:#082f49}
-  button.ghost{background:transparent;border:1px solid var(--line);color:var(--muted)}
+  button.good{background:var(--good);color:#052e16} button.accent{background:var(--accent);color:#082f49}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--muted)} button.sm{padding:7px 10px;font-size:13px}
   label.nc{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-top:8px}
   .bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;z-index:5}
   .bar button{flex:1;padding:14px}
   .empty{color:var(--muted);text-align:center;padding:40px 12px}
-  .toast{position:fixed;left:12px;right:12px;bottom:calc(92px + env(safe-area-inset-bottom));background:#111827;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px;z-index:9;box-shadow:0 8px 30px rgba(0,0,0,.5)}
-  .toast.err{border-color:var(--bad)}
-  .sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:8;align-items:flex-end}
-  .sheet.open{display:flex}
-  .sheet .panel{background:var(--bg);width:100%;max-height:85vh;border-radius:16px 16px 0 0;padding:12px;display:flex;flex-direction:column}
+  .toast{position:fixed;left:12px;right:12px;bottom:calc(92px + env(safe-area-inset-bottom));background:#111827;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px;z-index:9;box-shadow:0 8px 30px rgba(0,0,0,.5)} .toast.err{border-color:var(--bad)}
+  .sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:8;align-items:flex-end} .sheet.open{display:flex}
+  .sheet .panel{background:var(--bg);width:100%;max-height:88vh;border-radius:16px 16px 0 0;padding:12px;display:flex;flex-direction:column}
   .sheet input[type=search]{width:100%;padding:12px;font-size:16px;border-radius:10px;border:1px solid var(--line);background:var(--input);color:var(--text)}
-  .list{overflow:auto;margin-top:8px;flex:1}
-  .item{padding:12px 6px;border-bottom:1px solid var(--line)}
-  .item b{color:var(--accent)} .item small{color:var(--muted);display:block}
+  .list{overflow:auto;margin-top:8px;flex:1;-webkit-overflow-scrolling:touch}
+  .item{padding:12px 6px;border-bottom:1px solid var(--line)} .item b{color:var(--accent)} .item small{color:var(--muted);display:block}
   .prog{font-size:14px;margin:4px 0} .prog .ok{color:var(--good)} .prog .no{color:var(--bad)}
-  .center{min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:12px}
-  .center p{color:var(--muted);max-width:28em}
-  code{background:var(--card);padding:2px 6px;border-radius:6px}
+  .center{min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:12px} .center p{color:var(--muted);max-width:28em}
+  code{background:var(--card);padding:2px 6px;border-radius:6px;font-size:13px}
+  .act{font-size:13px;padding:5px 0;display:flex;gap:8px;border-bottom:1px solid rgba(51,65,85,.5)}
+  .act .tm{color:var(--muted);min-width:42px;font-variant-numeric:tabular-nums} .act .dur{color:var(--accent);min-width:34px} .act .ttl{color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .act a{color:var(--accent);text-decoration:none}
+  h4{margin:12px 0 4px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .ts{display:flex;gap:10px;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--line)}
+  .ts .tm{min-width:92px;font-variant-numeric:tabular-nums} .ts .hrs{min-width:46px;color:var(--accent);text-align:right} .ts .what{flex:1;min-width:0} .ts small{color:var(--muted);display:block}
+  .steps{text-align:left;max-width:34em;margin:0 auto} .steps li{margin:10px 0;color:var(--text)} .steps p{color:var(--muted);font-size:14px;margin:4px 0 0}
+  .dig{padding:10px 0;border-bottom:1px solid var(--line)} .dig .tm{color:var(--accent);font-variant-numeric:tabular-nums;font-size:13px} .dig .sum{margin-top:2px}
+  details summary{list-style:none;cursor:pointer} details summary::-webkit-details-marker{display:none}
 </style>
 </head>
 <body data-mode="__MODE__">
-<header>
+<header id="hdr">
   <div class="row"><h1>TIMESCRIBE</h1><span class="grow"></span><span id="who" class="chip">…</span></div>
   <div class="day">
     <button class="ghost" id="prev">‹</button>
@@ -68,44 +76,68 @@
     <button class="ghost" id="next">›</button>
   </div>
   <div class="chips" id="chips"></div>
+  <div class="seg" id="seg">
+    <button class="on" data-v="entries">Entries</button>
+    <button data-v="activity">Activity</button>
+    <button data-v="timesheet">Timesheet</button>
+  </div>
 </header>
 <main id="main"></main>
 <div class="bar" id="bar">
+  <button id="btnAdd" class="ghost">+ Entry</button>
   <button id="btnDigest">Run digest</button>
   <button id="btnPost" class="accent">Post approved</button>
 </div>
 
-<div class="sheet" id="sheet">
-  <div class="panel">
-    <div class="row"><strong class="grow">Pick a ticket</strong><button class="ghost" id="sheetClose">Close</button></div>
-    <input type="search" id="q" placeholder="Search your tickets (number, client, subject)" autocomplete="off">
-    <div class="list" id="list"></div>
-    <div class="row" style="margin-top:8px"><button class="ghost grow" id="clearTicket">Quick Time (no ticket)</button></div>
-  </div>
-</div>
+<div class="sheet" id="sheet"><div class="panel">
+  <div class="row"><strong class="grow">Pick a ticket</strong><button class="ghost sm" id="sheetClose">Close</button></div>
+  <input type="search" id="q" placeholder="Search your tickets (number, client, subject)" autocomplete="off">
+  <div class="list" id="list"></div>
+  <div class="row" style="margin-top:8px"><button class="ghost grow" id="clearTicket">Quick Time (no ticket)</button></div>
+</div></div>
 
-<div class="sheet" id="postSheet">
-  <div class="panel">
-    <div class="row"><strong class="grow">Posting to Halo</strong><button class="ghost" id="postClose" disabled>Close</button></div>
-    <div class="list" id="postList"></div>
-  </div>
-</div>
+<div class="sheet" id="actSheet"><div class="panel">
+  <div class="row"><strong class="grow" id="actTitle">Activity</strong><button class="ghost sm" id="actClose">Close</button></div>
+  <div class="list" id="actBody"></div>
+</div></div>
+
+<div class="sheet" id="postSheet"><div class="panel">
+  <div class="row"><strong class="grow">Posting to Halo</strong><button class="ghost sm" id="postClose" disabled>Close</button></div>
+  <div class="list" id="postList"></div>
+</div></div>
 
 <script>
 (function(){
   const mode = document.body.dataset.mode;
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const isHttps = location.protocol === 'https:';
+  if ('serviceWorker' in navigator && isHttps) navigator.serviceWorker.register('/m/sw.js', {scope: '/m'}).catch(() => {});
+
   if (mode !== 'app') {
-    $('bar').style.display = 'none'; document.querySelector('header').style.display = 'none';
-    $('main').innerHTML = mode === 'badcode'
-      ? '<div class="center"><h2>Code not valid</h2><p>That pairing code is wrong or has expired (they last 10 minutes). On the PC open TimeScribe → Settings → Mobile and tap <b>Pair a phone</b> for a fresh one.</p></div>'
-      : '<div class="center"><h2>This phone isn\'t paired</h2><p>On the PC open TimeScribe → Settings → Mobile → <b>Pair a phone</b>, then scan the QR code with this phone. You only do this once.</p></div>';
+    $('bar').style.display = 'none'; $('hdr').style.display = 'none';
+    const pages = {
+      badcode: '<div class="center"><h2>Code not valid</h2><p>That pairing code is wrong or has expired (they last 10 minutes). On the PC open TimeScribe → Settings → Mobile and tap <b>Pair a phone</b> for a fresh one.</p></div>',
+      unpaired: '<div class="center"><h2>This phone isn\'t paired</h2><p>On the PC open TimeScribe → Settings → Mobile → <b>Pair a phone</b>, then scan the QR code with this phone. You only do this once.</p></div>',
+      setup: `<div class="center" style="min-height:auto;padding-top:40px"><h2>Paired ✓ — one more step</h2>
+        <p>To use TimeScribe as an installed app, your phone needs to trust this PC's certificate. One time only.</p>
+        <ol class="steps">
+          <li><a href="/m/ca.crt" download="TimeScribe-CA.crt"><button class="accent">Download certificate</button></a>
+            <p>Saves <code>TimeScribe-CA.crt</code> to your phone.</p></li>
+          <li>Install it as a <b>CA certificate</b>
+            <p><b>Android:</b> Settings → Security &amp; privacy → More security settings → Encryption &amp; credentials → Install a certificate → <b>CA certificate</b> → Install anyway → pick the file.<br>
+               <b>iPhone:</b> Settings → Profile Downloaded → Install, then Settings → General → About → Certificate Trust Settings → turn on <b>TimeScribe Local CA</b>.</p></li>
+          <li><a href="__HTTPS_URL__"><button class="good">Open the secure app</button></a>
+            <p>Then in Chrome: menu ⋮ → <b>Install app</b> (or Add to Home screen). On iPhone: Share → Add to Home Screen.</p></li>
+        </ol>
+        <p style="margin-top:18px">Prefer not to install the certificate? <a href="/m" style="color:var(--accent)">Keep using the plain-HTTP page</a> — everything works, it just stays a browser tab.</p></div>`
+    };
+    $('main').innerHTML = pages[mode] || pages.unpaired;
     return;
   }
 
   let day = new Date(); day.setHours(0,0,0,0);
-  let drafts = [], tickets = null, pickIndex = null, saveTimers = {};
+  let view = 'entries', drafts = [], tickets = null, pickIndex = null, saveTimers = {}, status = {}, minFocus = 10, flashIndex = null;
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const api = async (path, opts) => {
     const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
@@ -121,13 +153,16 @@
     t.onclick = () => t.remove(); document.body.appendChild(t);
     clearTimeout(toastT); toastT = setTimeout(() => t.remove(), ms);
   };
-  const hm = m => `${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}m`;
+  const hm = m => `${Math.floor(m/60)}h ${String(Math.round(m)%60).padStart(2,'0')}m`;
+  const hm2min = hm => { const m = /^(\d{1,2}):(\d{2})/.exec(hm||''); return m ? (+m[1])*60 + (+m[2]) : null; };
+  const fmtClk = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(Math.round(m)%60).padStart(2,'0')}`;
 
   async function load() {
     const d = iso(day);
     $('dayLabel').textContent = day.toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
     try {
       const [s, dr, sum] = await Promise.all([api('/api/status'), api('/api/drafts?day='+d), api('/api/summary?day='+d)]);
+      status = s; minFocus = parseInt((s.config||{}).min_focus_seconds, 10) || 0;
       $('who').textContent = s.agent ? s.agent.name : 'Halo off';
       $('who').className = 'chip ' + (s.halo_connected ? 'ok' : 'err');
       drafts = dr.drafts || [];
@@ -143,40 +178,112 @@
     } catch (e) { toast('Load failed: ' + e.message, false); }
   }
 
+  function setView(v) {
+    view = v;
+    document.querySelectorAll('#seg button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    $('bar').style.display = v === 'entries' ? '' : 'none';
+    render();
+  }
+  $('seg').addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (b) setView(b.dataset.v); });
+
   function render() {
+    if (view === 'activity') return renderActivity();
+    if (view === 'timesheet') return renderTimesheet();
     const m = $('main');
     const order = {draft:0, approved:1, rejected:2, posted:3};
     const idx = drafts.map((d,i) => i).sort((a,b) => (order[drafts[a].status]||0) - (order[drafts[b].status]||0) || (drafts[a].start_time||'').localeCompare(drafts[b].start_time||''));
-    if (!drafts.length) { m.innerHTML = '<div class="empty">No time entries for this day yet.<br>Tap <b>Run digest</b> to build them from the activity log.</div>'; return; }
+    if (!drafts.length) { m.innerHTML = '<div class="empty">No time entries for this day yet.<br>Tap <b>Run digest</b> to build them from the activity log, or <b>+ Entry</b> to add one by hand.</div>'; return; }
     m.innerHTML = idx.map(i => {
       const d = drafts[i], st = d.status || 'draft', posted = st === 'posted';
       const t = d.ticket_id ? `#${d.ticket_id} · ${esc(d.client||'')} — ${esc(d.subject||'')}` : 'Quick Time (no ticket)';
-      return `<div class="card ${st}" data-i="${i}">
+      return `<div class="card ${st}${flashIndex === i ? ' flash' : ''}" data-i="${i}" id="card${i}">
         <div class="times">
           <input type="time" value="${esc(d.start_time)}" data-f="start_time" ${posted?'disabled':''}> –
           <input type="time" value="${esc(d.end_time)}" data-f="end_time" ${posted?'disabled':''}>
           <span class="grow"></span>
-          ${posted ? '<span class="chip ok">posted</span>' : `<button class="ghost" data-act="ignore" title="Ignore">✕</button>`}
+          ${posted ? '<span class="chip ok">posted</span>' : `<button class="ghost sm" data-act="ignore" title="Ignore">✕</button>`}
         </div>
-        <div class="ticket"><div class="t ${d.ticket_id?'':'none'}">${t}</div>${posted ? '' : '<button class="ghost" data-act="pick">Find</button>'}</div>
-        <textarea data-f="note" ${posted?'disabled':''}>${esc(d.note)}</textarea>
-        ${d.match_reason ? `<div class="meta"><span>${esc(d.match_reason)}</span></div>` : ''}
-        ${posted ? '' : `<label class="nc"><input type="checkbox" data-f="no_charge" ${d.no_charge?'checked':''}> No charge</label>
-        <div class="actions">
-          ${st === 'approved'
-            ? '<button class="grow" data-act="unapprove">Unapprove</button>'
-            : '<button class="grow good" data-act="approve">Approve</button>'}
+        <div class="ticket"><div class="t ${d.ticket_id?'':'none'}">${t}</div>${posted ? '' : '<button class="ghost sm" data-act="pick">Find</button>'}</div>
+        <textarea data-f="note" ${posted?'disabled':''} placeholder="What was done…">${esc(d.note)}</textarea>
+        ${d.match_reason ? `<div class="meta">${esc(d.match_reason)}</div>` : ''}
+        <div class="row" style="margin-top:8px">
+          ${posted ? '' : `<label class="nc" style="margin:0"><input type="checkbox" data-f="no_charge" ${d.no_charge?'checked':''}> No charge</label>`}
+          <span class="grow"></span>
+          <button class="ghost sm" data-act="activity">Activity</button>
+        </div>
+        ${posted ? '' : `<div class="actions">
+          ${st === 'approved' ? '<button class="grow" data-act="unapprove">Unapprove</button>' : '<button class="grow good" data-act="approve">Approve</button>'}
         </div>`}
       </div>`;
     }).join('');
+    if (flashIndex != null) { const c = $('card'+flashIndex); if (c) c.scrollIntoView({behavior:'smooth', block:'center'}); flashIndex = null; }
   }
 
-  // ---- edits: autosave (debounced), approve/unapprove, ignore, pick ----
+  // ---- Activity view: the day's digest, tap an entry to see what was open ----
+  async function renderActivity() {
+    const m = $('main'); m.innerHTML = '<div class="empty">Loading activity…</div>';
+    try {
+      const dig = await api('/api/digest?day='+iso(day));
+      const entries = dig.entries || [];
+      if (!entries.length) { m.innerHTML = '<div class="empty">No activity log for this day. Run the digest from the Entries tab.</div>'; return; }
+      m.innerHTML = `<div class="meta" style="margin-bottom:6px">${entries.length} activity entries · tap one to see the apps and pages behind it</div>` +
+        entries.map((e,i) => `<div class="dig" data-tr="${esc(e.time_range)}"><div class="tm">${esc(e.time_range)}</div><div class="sum">${esc(e.summary)}</div></div>`).join('');
+    } catch (e) { m.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  }
+  $('main').addEventListener('click', e => {
+    const dg = e.target.closest('.dig[data-tr]'); if (!dg) return;
+    const [a,b] = dg.dataset.tr.split('-').map(x => hm2min(x.trim()));
+    if (a != null && b != null) openActivity(a, b, dg.dataset.tr);
+  });
+
+  async function openActivity(s, e, label) {
+    $('actSheet').classList.add('open'); $('actTitle').textContent = 'Activity ' + label;
+    $('actBody').innerHTML = '<div class="empty">Loading…</div>';
+    try {
+      const r = await api('/api/timeline?day='+iso(day));
+      const ov = (a,b) => Math.max(0, Math.min(e,b) - Math.max(s,a));
+      const BROWSER = /msedge|chrome|brave|vivaldi|chromium|firefox/i, BNAME = /(Microsoft Edge|Google Chrome|Brave|Chromium|Mozilla Firefox|Vivaldi)$/i;
+      const clean = (app,t) => { if (!BROWSER.test(app||'')) return t||''; const p=(t||'').split(' - '); return (p.length>=3 && BNAME.test(p[p.length-1].trim())) ? p.slice(0,-2).join(' - ') : (t||''); };
+      const prof = (app,t) => { if (!BROWSER.test(app||'')) return ''; const p=(t||'').split(' - '); return (p.length>=2 && BNAME.test(p[p.length-1].trim())) ? p[p.length-2].trim() : ''; };
+      const all = (r.windows||[]).filter(w => ov(w.start,w.end) > 0).map(w => ({...w, secs: ov(w.start,w.end)*60}));
+      const apps = all.filter(w => w.secs >= minFocus).sort((a,b) => a.start-b.start);
+      const vis = (r.visits||[]).filter(v => v.t >= s && v.t <= e);
+      const afk = (r.afk||[]).filter(a => ov(a.start,a.end) > 0);
+      let h = `<h4>App focus${all.length-apps.length ? ` <span style="text-transform:none">(${all.length-apps.length} brief hidden)</span>` : ''}</h4>`;
+      h += apps.length ? apps.map(w => { const p = prof(w.app, w.title); return `<div class="act"><span class="tm">${fmtClk(Math.max(s,w.start))}</span><span class="dur">${Math.round(w.secs/60)}m</span><span class="ttl"><b style="color:var(--text)">${esc(p ? 'Edge · '+p : w.app)}</b> ${esc(clean(w.app,w.title))}</span></div>`; }).join('') : '<div class="meta">No app focus in this window.</div>';
+      h += `<h4>Browser (${vis.length})</h4>`;
+      h += vis.length ? vis.map(v => `<div class="act"><span class="tm">${esc(v.clock)}</span><span class="ttl">[${esc(v.profile)}] ${v.url && /^https?:/i.test(v.url) ? `<a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.domain)} — ${esc(v.title)} ↗</a>` : esc(v.domain)+' — '+esc(v.title)}</span></div>`).join('') : '<div class="meta">No browser visits in this window.</div>';
+      if (afk.length) h += `<h4>Away</h4>` + afk.map(a => `<div class="act"><span class="tm">${fmtClk(a.start)}</span><span class="ttl">AFK ${a.minutes} min (until ${fmtClk(a.end)})</span></div>`).join('');
+      $('actBody').innerHTML = h;
+    } catch (err) { $('actBody').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  }
+  $('actClose').onclick = () => $('actSheet').classList.remove('open');
+
+  // ---- Timesheet view: what Halo already has for the day ----
+  async function renderTimesheet() {
+    const m = $('main'); m.innerHTML = '<div class="empty">Loading Halo timesheet…</div>';
+    try {
+      const t = await api('/api/timesheet?day='+iso(day));
+      const rows = t.rows || [];
+      const tot = `<div class="chips" style="margin:0 0 8px">
+        <span class="chip ok">${(t.actual_hours ?? 0).toFixed ? (t.actual_hours||0).toFixed(2) : t.actual_hours} h logged</span>
+        <span class="chip">${(t.billable_hours||0).toFixed(2)} h billable</span>
+        ${t.target_hours ? `<span class="chip">target ${t.target_hours} h</span>` : ''}
+        ${t.unlogged_hours != null ? `<span class="chip ${t.unlogged_hours > 0 ? 'err' : ''}">${(t.unlogged_hours||0).toFixed(2)} h unlogged</span>` : ''}
+      </div>`;
+      m.innerHTML = tot + (rows.length ? rows.map(r => `<div class="ts">
+          <span class="tm">${esc(r.start)}–${esc(r.end)}</span>
+          <span class="what">${r.ticket_id ? `<b style="color:var(--accent)">#${r.ticket_id}</b> ${esc(r.subject||'')}` : esc(r.subject||'(no ticket)')}<small>${esc(r.customer||'')}${r.charge_type ? ' · ' + esc(r.charge_type) : ''}</small></span>
+          <span class="hrs">${(r.hours||0).toFixed(2)}</span>
+        </div>`).join('') : '<div class="empty">Nothing on the Halo timesheet for this day.</div>');
+    } catch (e) { m.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  }
+
+  // ---- edits: autosave (debounced), approve/unapprove, ignore, pick, activity ----
   $('main').addEventListener('input', e => {
     const card = e.target.closest('.card'); if (!card) return;
     const i = +card.dataset.i, f = e.target.dataset.f; if (!f) return;
-    clearTimeout(saveTimers[i]);
-    saveTimers[i] = setTimeout(() => saveCard(i, card), f === 'note' ? 900 : 200);
+    clearTimeout(saveTimers[i]); saveTimers[i] = setTimeout(() => saveCard(i, card), f === 'note' ? 900 : 200);
   });
   $('main').addEventListener('change', e => {
     const card = e.target.closest('.card'); if (!card || !e.target.dataset.f) return;
@@ -188,7 +295,7 @@
       note: card.querySelector('[data-f=note]').value,
       start_time: card.querySelector('[data-f=start_time]').value,
       end_time: card.querySelector('[data-f=end_time]').value,
-      no_charge: card.querySelector('[data-f=no_charge]').checked};
+      no_charge: card.querySelector('[data-f=no_charge]')?.checked || false};
     try {
       await api('/api/drafts/update?day='+iso(day), {method:'POST', body: JSON.stringify(body)});
       if (d.status === 'approved') { toast('Saved — edited entries need re-approval'); await load(); }
@@ -200,13 +307,15 @@
     const card = b.closest('.card'), i = +card.dataset.i, act = b.dataset.act;
     try {
       if (act === 'approve' || act === 'unapprove') {
-        await api('/api/drafts/action?day='+iso(day), {method:'POST', body: JSON.stringify({index:i, action:act})});
-        await load();
+        await api('/api/drafts/action?day='+iso(day), {method:'POST', body: JSON.stringify({index:i, action:act})}); await load();
       } else if (act === 'ignore') {
-        await api('/api/drafts/ignore?day='+iso(day), {method:'POST', body: JSON.stringify({index:i})});
-        toast('Ignored'); await load();
+        await api('/api/drafts/ignore?day='+iso(day), {method:'POST', body: JSON.stringify({index:i})}); toast('Ignored'); await load();
       } else if (act === 'pick') {
         pickIndex = i; openPicker();
+      } else if (act === 'activity') {
+        const s = hm2min(card.querySelector('[data-f=start_time]').value), en = hm2min(card.querySelector('[data-f=end_time]').value);
+        if (s == null || en == null || en <= s) return toast('Set valid start/end times first', false);
+        openActivity(s, en, `${fmtClk(s)}–${fmtClk(en)}`);
       }
     } catch (err) { toast(err.message, false); }
   });
@@ -235,15 +344,18 @@
     } catch (e) { toast(e.message, false); }
   }
 
-  // ---- run digest / post approved ----
+  // ---- add entry / run digest / post approved ----
+  $('btnAdd').onclick = async () => {
+    try { const r = await api('/api/drafts/add?day='+iso(day), {method:'POST'}); flashIndex = r.index; await load(); }
+    catch (e) { toast('Add failed: ' + e.message, false); }
+  };
   $('btnDigest').onclick = async () => {
     const dig = await api('/api/digest?day='+iso(day)).catch(() => ({entries: []}));
-    const hasLog = (dig.entries || dig || []).length > 0;
+    const hasLog = (dig.entries || []).length > 0;
     if (!confirm(hasLog ? 'Rebuild this day\'s drafts from the activity log? Unposted drafts are replaced.' : 'No activity log for this day yet. Build it now (reads raw activity, takes a minute)?')) return;
     $('btnDigest').disabled = true; $('btnDigest').textContent = 'Working…';
     try {
-      const r = hasLog ? await api('/api/drafts/suggest?day='+iso(day), {method:'POST'})
-                       : await api('/api/digest/rebuild?day='+iso(day), {method:'POST'});
+      const r = hasLog ? await api('/api/drafts/suggest?day='+iso(day), {method:'POST'}) : await api('/api/digest/rebuild?day='+iso(day), {method:'POST'});
       const n = (r.drafts || []).length;
       toast(r.error ? r.error : (n ? `Built ${n} draft${n===1?'':'s'}` : 'Nothing new to draft') + (r.note ? ' — ' + r.note : ''), !r.error, 6000);
       await load();

@@ -480,6 +480,9 @@
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
       <input type="checkbox" id="mobEnabled" style="width:auto;margin:0"> Enable mobile access on this network
     </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-top:6px">
+      <input type="checkbox" id="mobHttps" style="width:auto;margin:0"> Also serve HTTPS (lets the phone "Install app"; the phone installs this PC's certificate once)
+    </label>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px">
       <label style="margin:0;font-size:12px;color:var(--muted)">Port
         <input id="mobPort" type="number" min="1024" max="65535" value="8771" style="width:90px;padding:4px 6px;font-size:13px;margin-left:4px"></label>
@@ -500,7 +503,7 @@
           <div style="color:var(--muted);font-size:13px;margin-top:4px">or open this address on the phone:</div>
           <div id="mobPairUrl" style="font-family:monospace;font-size:13px;word-break:break-all;margin-top:4px"></div>
           <div style="margin-top:8px;font-size:13px">Code <strong id="mobCode" style="font-family:monospace;font-size:16px;letter-spacing:.08em"></strong> · valid for 10 minutes, single use</div>
-          <div style="color:var(--muted);font-size:12px;margin-top:8px">After the first visit the phone is remembered — no code next time. Revoke it below if the phone is lost.</div>
+          <div style="color:var(--muted);font-size:12px;margin-top:8px">After the first visit the phone is remembered — no code next time. With HTTPS on, the phone is then walked through installing this PC's certificate (once) so Chrome offers <em>Install app</em>. Revoke the phone below if it's lost.</div>
         </div>
       </div>
     </div>
@@ -980,9 +983,11 @@ async function loadMobile() {
     const m = await api('/api/mobile/info');
     $('mobEnabled').checked = !!m.enabled;
     $('mobPort').value = String(m.port || 8771);
-    $('mobUrl').innerHTML = m.enabled ? 'Phone address: <code>' + m.url + '</code>' : '';
-    $('mobState').textContent = m.enabled ? (m.listening ? 'listening' : 'not listening') : 'off';
-    $('mobState').className = 'pill ' + (m.enabled ? (m.listening ? 'ok' : 'err') : '');
+    $('mobHttps').checked = m.https !== false;
+    $('mobUrl').innerHTML = !m.enabled ? '' : ('Phone address: <code>' + m.url + '</code>' + (m.https ? ' · secure: <code>' + m.https_url + '</code>' : ''));
+    const up = m.enabled && m.listening && (!m.https || m.https_listening);
+    $('mobState').textContent = !m.enabled ? 'off' : (up ? 'listening' : (m.listening ? 'HTTPS not listening' : 'not listening'));
+    $('mobState').className = 'pill ' + (m.enabled ? (up ? 'ok' : 'err') : '');
     $('mobPair').disabled = !m.enabled;
     const fwKnown = m.firewall_rule !== null && m.firewall_rule !== undefined;
     if (!fwKnown && m.enabled) {
@@ -992,7 +997,7 @@ async function loadMobile() {
     $('mobFwBtn').style.display = (m.enabled && fwKnown && !m.firewall_rule) ? '' : 'none';
     $('mobFw').innerHTML = !m.enabled ? '' : (!fwKnown ? '' : (m.firewall_rule
       ? '<span class="ok-text">Windows Firewall rule present (private networks only).</span>'
-      : '<span style="color:var(--warn,#f59e0b)">Windows Firewall will block the phone until port ' + m.port + ' is allowed. Use the button below (asks for admin once).</span>'));
+      : '<span style="color:var(--warn,#f59e0b)">Windows Firewall will block the phone until port' + (m.https ? 's ' + m.port + ' and ' + m.https_port : ' ' + m.port) + ' are allowed. Use the button below (asks for admin once).</span>'));
     $('mobDevices').innerHTML = (m.devices && m.devices.length) ? m.devices.map(d =>
       `<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
          <span style="flex:1;color:var(--text)">${d.name}</span>
@@ -1009,7 +1014,7 @@ async function loadMobile() {
 $('mobSave').onclick = async () => {
   try {
     await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({mobile_enabled: $('mobEnabled').checked, mobile_port: parseInt($('mobPort').value, 10) || 8771})});
+      body: JSON.stringify({mobile_enabled: $('mobEnabled').checked, mobile_https: $('mobHttps').checked, mobile_port: parseInt($('mobPort').value, 10) || 8771})});
     showToast($('mobEnabled').checked ? 'Mobile access on.' : 'Mobile access off.', true);
     setTimeout(loadMobile, 600);
   } catch (e) { showToast('Save failed: ' + e.message, false); }

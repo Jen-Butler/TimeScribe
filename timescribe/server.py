@@ -67,7 +67,7 @@ _MOBILE_ALLOW_PREFIXES = (
     "/m", "/favicon.ico", "/manifest.webmanifest", "/icon-",
     "/api/status", "/api/summary", "/api/drafts", "/api/digest",
     "/api/tickets/mine", "/api/tickets/search", "/api/ticket",
-    "/api/timesheet", "/api/posted", "/api/scheduler/status",
+    "/api/timesheet", "/api/posted", "/api/scheduler/status", "/api/timeline",
 )
 
 
@@ -82,8 +82,8 @@ async def _mobile_gate(request: Request, call_next):
         return _Resp("Not available", status_code=403)
     if not any(path == p or path.startswith(p) for p in _MOBILE_ALLOW_PREFIXES):
         return _Resp("Not available on mobile", status_code=403)
-    if path.startswith("/m/pair"):
-        return await call_next(request)               # pairing is the login
+    if path.startswith(("/m/pair", "/m/setup", "/m/ca.crt", "/m/manifest", "/m/sw.js")):
+        return await call_next(request)               # pairing/setup = the login
     if _mobile.verify_token(request.cookies.get(_mobile.COOKIE)) is None:
         if path.startswith("/api/"):
             return _Resp('{"error":"not paired"}', status_code=401,
@@ -106,7 +106,9 @@ def mobile_index():
 @app.get("/m/pair")
 def mobile_pair(code: str = "", request: Request = None):
     """The phone lands here once from the QR/URL. A valid code becomes a
-    long-lived device cookie; the browser is then sent to /m."""
+    long-lived device cookie; the browser is then sent on -- to the
+    certificate setup page when HTTPS is on and this came in over HTTP,
+    otherwise straight to /m."""
     ua = (request.headers.get("user-agent", "") if request else "")[:200]
     name = "Phone"
     for key in ("iPhone", "iPad", "Android", "Pixel", "Samsung", "Windows", "Macintosh"):
@@ -116,10 +118,61 @@ def mobile_pair(code: str = "", request: Request = None):
     token = _mobile.redeem_pairing_code(code, name)
     if not token:
         return HTMLResponse(_mobile_page("badcode"), status_code=400)
-    resp = RedirectResponse(url="/m", status_code=303)
+    dest = "/m/setup" if (_mobile.https_enabled() and request and request.url.scheme == "http") else "/m"
+    resp = RedirectResponse(url=dest, status_code=303)
+    # No Secure flag on purpose: the cookie is set over HTTP during pairing and
+    # must also be sent to the HTTPS listener on the same host.
     resp.set_cookie(_mobile.COOKIE, token, max_age=_mobile.TOKEN_MAX_AGE_S,
                     httponly=True, samesite="lax", path="/")
     return resp
+
+
+@app.get("/m/setup", response_class=HTMLResponse)
+def mobile_setup(request: Request):
+    """One-time certificate install + 'Install app' instructions."""
+    paired = _mobile.verify_token(request.cookies.get(_mobile.COOKIE)) is not None
+    if not paired:
+        return HTMLResponse(_mobile_page("unpaired"), status_code=401)
+    html = _mobile_page("setup")
+    return html.replace("__HTTPS_URL__", _mobile.https_url() + "/m")
+
+
+@app.get("/m/ca.crt")
+def mobile_ca(request: Request):
+    """The local CA certificate (PEM) for the phone to install. Only for a
+    paired device; the CA's private key never leaves the PC."""
+    if _mobile.verify_token(request.cookies.get(_mobile.COOKIE)) is None and not _mobile.is_loopback(request.client.host):
+        return _Resp("Not paired", status_code=401)
+    _mobile.ensure_certs()
+    p = _mobile.ca_cert_path()
+    if not p.exists():
+        return _Resp("Certificate unavailable", status_code=404)
+    from fastapi.responses import FileResponse
+    return FileResponse(str(p), media_type="application/x-x509-ca-cert",
+                        filename="TimeScribe-CA.crt")
+
+
+@app.get("/m/manifest.webmanifest")
+def mobile_manifest():
+    import json as _json
+    m = {"name": "TimeScribe", "short_name": "TimeScribe", "id": "/m",
+         "start_url": "/m", "scope": "/m", "display": "standalone",
+         "background_color": "#0f172a", "theme_color": "#0f172a",
+         "description": "Review and post the day's time entries",
+         "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                   {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}]}
+    return _Resp(_json.dumps(m), media_type="application/manifest+json")
+
+
+@app.get("/m/sw.js")
+def mobile_sw():
+    # Network passthrough only (a fetch handler is what makes the page
+    # installable); the review data must always be live.
+    js = ("self.addEventListener('install',e=>self.skipWaiting());"
+          "self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));"
+          "self.addEventListener('fetch',e=>{e.respondWith(fetch(e.request))});")
+    return _Resp(js, media_type="text/javascript",
+                 headers={"Service-Worker-Allowed": "/m", "Cache-Control": "no-cache"})
 
 
 @app.get("/api/mobile/info")
@@ -128,6 +181,10 @@ def mobile_info():
         "enabled": _mobile.enabled(),
         "listening": _mobile.listening(),
         "port": _mobile.port(),
+        "https": _mobile.https_enabled(),
+        "https_listening": _mobile.https_listening(),
+        "https_port": _mobile.https_port(),
+        "https_url": _mobile.https_url() + "/m",
         "lan_ip": _mobile.lan_ip(),
         "url": _mobile.base_url() + "/m",
         "firewall_rule": _mobile.firewall_rule_exists(),
@@ -220,6 +277,7 @@ class ConfigUpdate(BaseModel):
     min_focus_seconds: Optional[int] = None
     mobile_enabled: Optional[bool] = None
     mobile_port: Optional[int] = None
+    mobile_https: Optional[bool] = None
     combined_digest_drafts: Optional[bool] = None
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
     ticket_browser_profile: Optional[str] = None  # Edge profile-directory

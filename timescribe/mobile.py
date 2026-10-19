@@ -86,8 +86,21 @@ def enabled() -> bool:
     return bool(appconfig.load().get("mobile_enabled", False))
 
 
+def https_enabled() -> bool:
+    return bool(appconfig.load().get("mobile_https", True))
+
+
+def https_port() -> int:
+    return port() + 1
+
+
 def base_url() -> str:
+    """Plain-HTTP address (pairing + certificate setup)."""
     return f"http://{lan_ip()}:{port()}"
+
+
+def https_url() -> str:
+    return f"https://{lan_ip()}:{https_port()}"
 
 
 # ---------- pairing ----------
@@ -186,56 +199,201 @@ def revoke_device(device_id: str) -> bool:
     return True
 
 
+# ---------- local certificate authority (for HTTPS -> installable PWA) ----------
+#
+# Chrome only offers "Install app" on a secure origin, and a plain IP on the
+# LAN can't get a public certificate. So TimeScribe mints its own CA once,
+# the phone installs that CA (one-time), and the server certificate -- which
+# names the PC's LAN IP -- is then trusted. Private key never leaves the PC.
+
+def _cert_dir():
+    from pathlib import Path
+    from platformdirs import user_data_dir
+    d = Path(user_data_dir("timescribe")) / "mobile_ca"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def ca_cert_path():
+    return _cert_dir() / "TimeScribe-CA.crt"
+
+
+def ensure_certs() -> Optional[tuple]:
+    """Return (server_cert, server_key) paths, creating the CA and/or server
+    cert as needed. The server cert is re-issued when the LAN IP changes or
+    it is within 30 days of expiry. None if `cryptography` is unavailable."""
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+    except Exception as exc:
+        print(f"[mobile] HTTPS unavailable (cryptography missing): {exc}")
+        return None
+    import datetime as _dt
+    import ipaddress as _ip
+    d = _cert_dir()
+    ca_key_p, ca_crt_p = d / "ca.key", ca_cert_path()
+    sv_key_p, sv_crt_p = d / "server.key", d / "server.crt"
+    now = _dt.datetime.now(_dt.timezone.utc)
+
+    def _write_key(path, key):
+        path.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                                           serialization.PrivateFormat.PKCS8,
+                                           serialization.NoEncryption()))
+
+    # CA (10 years)
+    if not (ca_key_p.exists() and ca_crt_p.exists()):
+        ca_key = ec.generate_private_key(ec.SECP256R1())
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"TimeScribe Local CA ({socket.gethostname()})"),
+                          x509.NameAttribute(NameOID.ORGANIZATION_NAME, "TimeScribe")])
+        ca = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+              .public_key(ca_key.public_key()).serial_number(x509.random_serial_number())
+              .not_valid_before(now - _dt.timedelta(days=1))
+              .not_valid_after(now + _dt.timedelta(days=3650))
+              .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+              .add_extension(x509.KeyUsage(digital_signature=True, key_cert_sign=True, crl_sign=True,
+                                           content_commitment=False, key_encipherment=False,
+                                           data_encipherment=False, key_agreement=False,
+                                           encipher_only=False, decipher_only=False), critical=True)
+              .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
+              .sign(ca_key, hashes.SHA256()))
+        _write_key(ca_key_p, ca_key)
+        ca_crt_p.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+        print("[mobile] created local CA")
+        for p_ in (sv_key_p, sv_crt_p):
+            if p_.exists():
+                p_.unlink()
+    ca_key = serialization.load_pem_private_key(ca_key_p.read_bytes(), password=None)
+    ca = x509.load_pem_x509_certificate(ca_crt_p.read_bytes())
+
+    # Server cert: must name the current LAN IP; iOS caps TLS leaf validity
+    # at 825 days for manually trusted roots, so issue for ~2 years.
+    ip = lan_ip()
+    reissue = True
+    if sv_key_p.exists() and sv_crt_p.exists():
+        try:
+            cur = x509.load_pem_x509_certificate(sv_crt_p.read_bytes())
+            san = cur.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+            ips = [str(v) for v in san.get_values_for_type(x509.IPAddress)]
+            exp = cur.not_valid_after_utc if hasattr(cur, "not_valid_after_utc") else cur.not_valid_after.replace(tzinfo=_dt.timezone.utc)
+            reissue = ip not in ips or exp - now < _dt.timedelta(days=30)
+        except Exception:
+            reissue = True
+    if reissue:
+        key = ec.generate_private_key(ec.SECP256R1())
+        host = socket.gethostname()
+        sans = [x509.IPAddress(_ip.ip_address(ip)), x509.DNSName(host), x509.DNSName(f"{host}.local"),
+                x509.DNSName("localhost"), x509.IPAddress(_ip.ip_address("127.0.0.1"))]
+        cert = (x509.CertificateBuilder()
+                .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"TimeScribe {ip}")]))
+                .issuer_name(ca.subject).public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(now - _dt.timedelta(days=1))
+                .not_valid_after(now + _dt.timedelta(days=820))
+                .add_extension(x509.SubjectAlternativeName(sans), critical=False)
+                .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+                .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+                .add_extension(x509.KeyUsage(digital_signature=True, key_encipherment=True, key_agreement=False,
+                                             content_commitment=False, data_encipherment=False, key_cert_sign=False,
+                                             crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
+                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
+                .sign(ca_key, hashes.SHA256()))
+        _write_key(sv_key_p, key)
+        sv_crt_p.write_bytes(cert.public_bytes(serialization.Encoding.PEM) + ca_crt_p.read_bytes())
+        print(f"[mobile] issued server certificate for {ip}")
+    return sv_crt_p, sv_key_p
+
+
 # ---------- the LAN listener ----------
 
+_https_server = None
+_https_thread: Optional[threading.Thread] = None
+
+
+def _alive(server, thread) -> bool:
+    return bool(server is not None and thread is not None and thread.is_alive() and not server.should_exit)
+
+
 def listening() -> bool:
-    return bool(_server is not None and _server_thread is not None
-                and _server_thread.is_alive() and not _server.should_exit)
+    return _alive(_server, _server_thread)
 
 
-def start_listener(fastapi_app) -> None:
-    """Start the LAN listener (idempotent). Runs uvicorn in a daemon thread
-    so it can be stopped/restarted when the setting or port changes."""
-    global _server, _server_thread
-    if listening():
-        return
+def https_listening() -> bool:
+    return _alive(_https_server, _https_thread)
+
+
+def _spawn(fastapi_app, bind_port: int, name: str, **ssl):
     import uvicorn
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port(),
-                            log_level="warning")
-    _server = uvicorn.Server(config)
-    _server.install_signal_handlers = lambda: None     # not the main thread
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=bind_port, log_level="warning", **ssl)
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = lambda: None     # not the main thread
 
     def _run():
         try:
-            _server.run()
+            server.run()
         except Exception as exc:
-            print(f"[mobile] LAN listener stopped: {exc}")
+            print(f"[mobile] {name} listener stopped: {exc}")
 
-    _server_thread = threading.Thread(target=_run, daemon=True, name="mobile-listener")
-    _server_thread.start()
+    th = threading.Thread(target=_run, daemon=True, name=name)
+    th.start()
+    return server, th
+
+
+def start_listener(fastapi_app) -> None:
+    """Start the plain-HTTP listener (pairing + certificate setup, and the
+    app itself as a fallback). Idempotent."""
+    global _server, _server_thread
+    if listening():
+        return
+    _server, _server_thread = _spawn(fastapi_app, port(), "mobile-http")
     print(f"[mobile] listening on {base_url()}")
 
 
+def start_https_listener(fastapi_app) -> None:
+    global _https_server, _https_thread
+    if https_listening():
+        return
+    certs = ensure_certs()
+    if not certs:
+        return
+    crt, key = certs
+    _https_server, _https_thread = _spawn(fastapi_app, https_port(), "mobile-https",
+                                          ssl_certfile=str(crt), ssl_keyfile=str(key))
+    print(f"[mobile] listening on {https_url()}")
+
+
+def _stop(server, thread):
+    if server is not None:
+        server.should_exit = True
+        if thread is not None:
+            thread.join(timeout=5)
+
+
 def stop_listener() -> None:
-    global _server, _server_thread
-    if _server is not None:
-        _server.should_exit = True
-        if _server_thread is not None:
-            _server_thread.join(timeout=5)
-        print("[mobile] LAN listener stopped")
-    _server = None
-    _server_thread = None
+    global _server, _server_thread, _https_server, _https_thread
+    _stop(_server, _server_thread)
+    _stop(_https_server, _https_thread)
+    if _server is not None or _https_server is not None:
+        print("[mobile] LAN listeners stopped")
+    _server = _server_thread = _https_server = _https_thread = None
 
 
 def apply(fastapi_app) -> None:
-    """Reconcile the listener with the current setting (called at startup
+    """Reconcile the listeners with the current settings (called at startup
     and after Settings are saved)."""
-    if enabled():
-        if listening() and _server.config.port != port():
-            stop_listener()
-        start_listener(fastapi_app)
-    else:
+    if not enabled():
         stop_listener()
+        return
+    if listening() and _server.config.port != port():
+        stop_listener()
+    start_listener(fastapi_app)
+    if https_enabled():
+        if https_listening() and _https_server.config.port != https_port():
+            _stop(_https_server, _https_thread)
+        start_https_listener(fastapi_app)
+    elif https_listening():
+        _stop(_https_server, _https_thread)
 
 
 # ---------- Windows Firewall ----------
@@ -247,6 +405,15 @@ _fw_cache: dict = {"at": 0.0, "value": None, "running": False}
 
 
 def _fw_query() -> Optional[bool]:
+    """True only if every port the listeners use is covered."""
+    ports = [port()] + ([https_port()] if https_enabled() else [])
+    results = [_fw_query_port(p) for p in ports]
+    if any(r is None for r in results):
+        return None
+    return all(results)
+
+
+def _fw_query_port(p: int) -> Optional[bool]:
     """Parse `netsh advfirewall firewall show rule name=all dir=in`: fast,
     unprivileged, and -- unlike Get-NetFirewallPortFilter -- doesn't abort
     with 'Access is denied' on protected rules. A rule counts if it is
@@ -255,7 +422,6 @@ def _fw_query() -> Optional[bool]:
     LocalPort 'Any' are ignored: they don't open the port for this process."""
     import re
     import subprocess
-    p = port()
     try:
         r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule",
                             "name=all", "dir=in"], capture_output=True, text=True,
@@ -325,10 +491,10 @@ def open_firewall() -> str:
     """Add an inbound allow rule for the mobile port on PRIVATE networks
     only, via an elevated PowerShell (Windows shows a UAC prompt)."""
     import subprocess
-    p = port()
+    ports = f"{port()},{https_port()}"
     inner = (f"netsh advfirewall firewall delete rule name=\"{FW_RULE}\" | Out-Null; "
              f"netsh advfirewall firewall add rule name=\"{FW_RULE}\" dir=in action=allow "
-             f"protocol=TCP localport={p} profile=private")
+             f"protocol=TCP localport={ports} profile=private")
     ps = f"Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-Command','{inner}'"
     subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
                    capture_output=True, text=True, timeout=120,
