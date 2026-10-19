@@ -76,7 +76,10 @@
   .shot div{padding:4px 6px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .lb{position:fixed;inset:0;background:#000;display:none;z-index:20;flex-direction:column}
   .lb.open{display:flex}
-  .lb img{flex:1;min-height:0;width:100%;object-fit:contain;touch-action:pan-y}
+  .lb .stage{flex:1;min-height:0;position:relative;overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center}
+  .lb img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
+  .lb .hint{position:absolute;left:0;right:0;top:calc(10px + env(safe-area-inset-top));text-align:center;font-size:12px;color:var(--muted);pointer-events:none}
+  .lb .zoom{position:absolute;right:8px;bottom:8px;display:flex;gap:6px}
   .lb .cap{padding:8px 12px calc(10px + env(safe-area-inset-bottom));font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:center}
   .lb .cap span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lb .top{position:absolute;top:calc(8px + env(safe-area-inset-top));right:8px}
@@ -118,8 +121,12 @@
 </div></div>
 
 <div class="lb" id="lb">
-  <button class="ghost sm top" id="lbClose">Close</button>
-  <img id="lbImg" alt="">
+  <button class="ghost sm top" id="lbClose" style="z-index:2">Close</button>
+  <div class="stage" id="lbStage">
+    <div class="hint" id="lbHint">pinch or double-tap to zoom · swipe for next</div>
+    <img id="lbImg" alt="" draggable="false">
+    <div class="zoom"><button class="ghost sm" id="lbZoomOut">−</button><button class="ghost sm" id="lbZoomIn">+</button><button class="ghost sm" id="lbZoomFit">Fit</button></div>
+  </div>
   <div class="cap"><button class="ghost sm" id="lbPrev">‹</button><span id="lbCap"></span><button class="ghost sm" id="lbNext">›</button></div>
 </div>
 
@@ -309,6 +316,7 @@
   let _lb = {items: [], idx: 0, day: ''};
   function lbShow() {
     const it = _lb.items[_lb.idx]; if (!it) return;
+    zReset();
     $('lbImg').src = shotUrl(_lb.day, it.file);
     $('lbCap').textContent = `${it.t} · ${it.app || ''}${it.title ? ' — ' + it.title : ''}  (${_lb.idx+1}/${_lb.items.length})`;
     $('lbPrev').disabled = _lb.idx === 0; $('lbNext').disabled = _lb.idx >= _lb.items.length - 1;
@@ -317,9 +325,71 @@
   $('lbClose').onclick = () => { $('lb').classList.remove('open'); $('lbImg').removeAttribute('src'); };
   $('lbPrev').onclick = () => { if (_lb.idx > 0) { _lb.idx--; lbShow(); } };
   $('lbNext').onclick = () => { if (_lb.idx < _lb.items.length - 1) { _lb.idx++; lbShow(); } };
-  let _sx = null;
-  $('lbImg').addEventListener('touchstart', e => { _sx = e.touches[0].clientX; }, {passive:true});
-  $('lbImg').addEventListener('touchend', e => { if (_sx == null) return; const dx = e.changedTouches[0].clientX - _sx; _sx = null; if (dx < -40) $('lbNext').click(); else if (dx > 40) $('lbPrev').click(); }, {passive:true});
+  // ---- lightbox zoom: pinch, drag to pan, double-tap, +/- buttons; swipe for prev/next when not zoomed ----
+  const Z = {scale: 1, x: 0, y: 0, min: 1, max: 8};
+  const stage = $('lbStage'), img = $('lbImg');
+  function zApply() { img.style.transform = `translate(${Z.x}px, ${Z.y}px) scale(${Z.scale})`; }
+  function zReset() { Z.scale = 1; Z.x = 0; Z.y = 0; img.style.transform = ''; }
+  // Z.x/Z.y are offsets from the image's natural (flex-centred) position.
+  function base() { const st = stage.getBoundingClientRect(); return {st, bx: (st.width - img.offsetWidth) / 2, by: (st.height - img.offsetHeight) / 2}; }
+  function zClamp() {
+    const {st, bx, by} = base();
+    const w = img.offsetWidth * Z.scale, h = img.offsetHeight * Z.scale;
+    // image left/top in stage coords = base + offset; keep it covering the stage, or centred if smaller
+    if (w <= st.width) Z.x = (st.width - w) / 2 - bx; else Z.x = Math.min(-bx, Math.max(st.width - w - bx, Z.x));
+    if (h <= st.height) Z.y = (st.height - h) / 2 - by; else Z.y = Math.min(-by, Math.max(st.height - h - by, Z.y));
+  }
+  function zoomAt(factor, cx, cy) {
+    const {st, bx, by} = base();
+    const px = cx - st.left, py = cy - st.top;
+    const ns = Math.min(Z.max, Math.max(Z.min, Z.scale * factor));
+    const k = ns / Z.scale;
+    const L = bx + Z.x, T = by + Z.y;                    // current image top-left in stage coords
+    Z.x = (px - (px - L) * k) - bx; Z.y = (py - (py - T) * k) - by; Z.scale = ns;
+    if (Z.scale === 1) zReset(); else { zClamp(); zApply(); }
+  }
+  // initialise translate to the centred position once the image has a size
+  img.addEventListener('load', zReset);
+  const pts = new Map(); let pinchDist = 0, pinchMid = null, dragStart = null, lastTap = 0, moved = false;
+  stage.addEventListener('pointerdown', e => {
+    stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, {x: e.clientX, y: e.clientY}); moved = false;
+    if (pts.size === 2) { const [a,b] = [...pts.values()]; pinchDist = Math.hypot(a.x-b.x, a.y-b.y); pinchMid = {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; }
+    else if (pts.size === 1) dragStart = {x: e.clientX, y: e.clientY, zx: Z.x, zy: Z.y, t: Date.now()};
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (pts.size === 2) {
+      const [a,b] = [...pts.values()]; const d = Math.hypot(a.x-b.x, a.y-b.y);
+      if (pinchDist > 0 && Math.abs(d - pinchDist) > 1) { zoomAt(d / pinchDist, pinchMid.x, pinchMid.y); pinchDist = d; }
+      moved = true;
+    } else if (pts.size === 1 && dragStart) {
+      const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
+      if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+      if (Z.scale > 1) { Z.x = dragStart.zx + dx; Z.y = dragStart.zy + dy; zClamp(); zApply(); }
+    }
+  });
+  function endPointer(e) {
+    const was = pts.get(e.pointerId); pts.delete(e.pointerId);
+    if (pts.size === 1) { const [a] = [...pts.values()]; dragStart = {x: a.x, y: a.y, zx: Z.x, zy: Z.y, t: Date.now()}; pinchDist = 0; return; }
+    if (pts.size) return;
+    if (dragStart && was) {
+      const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y, dt = Date.now() - dragStart.t;
+      if (Z.scale === 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) { if (dx < 0) $('lbNext').click(); else $('lbPrev').click(); }
+      else if (!moved && dt < 300) {
+        const now = Date.now();
+        if (now - lastTap < 320) { if (Z.scale > 1) zReset(); else zoomAt(2.5, e.clientX, e.clientY); lastTap = 0; }
+        else lastTap = now;
+      }
+    }
+    dragStart = null; pinchDist = 0;
+  }
+  stage.addEventListener('pointerup', endPointer); stage.addEventListener('pointercancel', endPointer);
+  stage.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.15 : 1/1.15, e.clientX, e.clientY); }, {passive: false});
+  $('lbZoomIn').onclick = () => { const st = stage.getBoundingClientRect(); zoomAt(1.5, st.left + st.width/2, st.top + st.height/2); };
+  $('lbZoomOut').onclick = () => { const st = stage.getBoundingClientRect(); zoomAt(1/1.5, st.left + st.width/2, st.top + st.height/2); };
+  $('lbZoomFit').onclick = zReset;
+  $('lbHint').style.transition = 'opacity .6s'; setTimeout(() => { $('lbHint').style.opacity = '0'; }, 4000);
 
   async function openActivity(s, e, label) {
     $('actSheet').classList.add('open'); $('actTitle').textContent = 'Activity ' + label;
