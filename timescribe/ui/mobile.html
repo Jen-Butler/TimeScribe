@@ -34,7 +34,8 @@
   .card.approved{border-color:var(--good)} .card.posted{opacity:.6} .card.flash{outline:2px solid var(--accent)}
   .times{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
   .times input.tmi{background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 6px;font-size:17px;width:76px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
-  .times input.tmi.bad{border-color:var(--bad)} .times input.tmi::placeholder{color:#64748b;font-size:13px;letter-spacing:0}
+  .times input.tmi.bad{border-color:var(--bad)} .times input.tmi.odd{border-color:var(--warn);color:var(--warn)}
+  .clock{font-size:12px;color:var(--muted);margin-top:4px} .clock.odd{color:var(--warn)} .times input.tmi::placeholder{color:#64748b;font-size:13px;letter-spacing:0}
   .mergebar{background:#172554;border:1px solid var(--accent);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px;display:flex;gap:8px;align-items:center}
   .card.mergeable{border-color:var(--accent);border-style:dashed}
   .card.anchor{outline:2px solid var(--accent)}
@@ -253,6 +254,7 @@
           <span class="grow"></span>
           ${posted ? '<span class="chip ok">posted</span>' : `<button class="ghost sm" data-act="ignore" title="Ignore">✕</button>`}
         </div>
+        <div class="clock" data-clock>${clockLine(d.start_time, d.end_time)}</div>
         <div class="ticket"><div class="t ${d.ticket_id?'':'none'}">${t}</div>${posted ? '' : '<button class="ghost sm" data-act="pick">Find</button>'}</div>
         <textarea data-f="note" ${posted?'disabled':''} placeholder="What was done…">${esc(d.note)}</textarea>
         ${d.match_reason ? `<div class="meta">${esc(d.match_reason)}</div>` : ''}
@@ -272,6 +274,27 @@
     const ss = $('sortSel'); if (ss) ss.onchange = () => { sortMode = ss.value; render(); };
   }
 
+  const h12 = hm => { const m = hm2min(hm); if (m == null) return ''; const h = Math.floor(m/60), mm = String(m%60).padStart(2,'0'); return `${((h+11)%12)+1}:${mm} ${h < 12 ? 'AM' : 'PM'}`; };
+  function workWindow() { const c = status.config || {}; return [hm2min(c.work_start) ?? 8*60, hm2min(c.work_end) ?? 20*60]; }
+  function oddHours(st, en) {
+    const a = hm2min(st), b = hm2min(en); if (a == null || b == null) return '';
+    if (b <= a) return 'ends before it starts — overnight?';
+    const [ws, we] = workWindow();
+    if (a < ws || b > we) return `outside your ${h12(fmtClk(ws))}–${h12(fmtClk(we))} day`;
+    return '';
+  }
+  function clockLine(st, en) {
+    const a = h12(st), b = h12(en); if (!a && !b) return '';
+    const odd = oddHours(st, en);
+    return `<span class="${odd ? 'odd' : ''}">${a || '…'} – ${b || '…'}${odd ? ' · ⚠ ' + esc(odd) : ''}</span>`;
+  }
+  function refreshClock(card) {
+    const st = card.querySelector('[data-f=start_time]'), en = card.querySelector('[data-f=end_time]');
+    const odd = oddHours(st.value, en.value);
+    card.querySelector('[data-clock]').innerHTML = clockLine(st.value, en.value);
+    st.classList.toggle('odd', !!odd && !!st.value); en.classList.toggle('odd', !!odd && !!en.value);
+  }
+
   // Time fields: free typing with a numeric keyboard. Accepts 930, 0930,
   // 9:30, 17:30, 5p / 5:30pm; normalises to HH:MM (24h) on blur/enter.
   function parseTime(v) {
@@ -282,6 +305,7 @@
     else { const d = v.replace(/\D/g,''); if (!d) return null; if (d.length <= 2) { h = +d; m = 0; } else { h = parseInt(d.slice(0,-2),10); m = parseInt(d.slice(-2),10); } }
     if (isNaN(h) || isNaN(m) || m > 59) return null;
     if (ap) { if (ap[1] === 'p' && h < 12) h += 12; if (ap[1] === 'a' && h === 12) h = 0; }
+    else if (h >= 1 && h <= 7 && !/^0/.test(v)) h += 12;   // no am/pm and no leading zero: 1-7 means afternoon ("7a" or "0700" for morning)
     if (h > 23) return null;
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
   }
@@ -293,6 +317,7 @@
     const t = parseTime(el.value);
     if (!t) { el.classList.add('bad'); el.value = d[el.dataset.f] || ''; setTimeout(() => el.classList.remove('bad'), 1200); return; }
     el.classList.remove('bad'); el.value = t;
+    refreshClock(card);
     if (t !== d[el.dataset.f]) { clearTimeout(saveTimers[i]); saveCard(i, card); }
   });
 
@@ -485,6 +510,10 @@
     const card = b.closest('.card'), i = +card.dataset.i, act = b.dataset.act;
     try {
       if (act === 'approve' || act === 'unapprove') {
+        if (act === 'approve') {
+          const d = drafts[i], odd = oddHours(d.start_time, d.end_time);
+          if (odd && !confirm(`${h12(d.start_time)} – ${h12(d.end_time)} is ${odd}.\n\nApprove anyway?`)) return;
+        }
         await api('/api/drafts/action?day='+iso(day), {method:'POST', body: JSON.stringify({index:i, action:act})}); await load();
       } else if (act === 'ignore') {
         await api('/api/drafts/ignore?day='+iso(day), {method:'POST', body: JSON.stringify({index:i})}); toast('Ignored'); await load();
