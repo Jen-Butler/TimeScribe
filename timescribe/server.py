@@ -80,7 +80,11 @@ async def _mobile_gate(request: Request, call_next):
     # Not from this PC: must be LAN, mobile must be on, path must be allowed.
     if not _mobile.enabled() or not _mobile.is_private(host):
         return _Resp("Not available", status_code=403)
-    if not any(path == p or path.startswith(p) for p in _MOBILE_ALLOW_PREFIXES):
+    allowed = any(path == p or path.startswith(p) for p in _MOBILE_ALLOW_PREFIXES)
+    # Screenshots: the phone may VIEW them (index + files), never purge/pause.
+    if path in ("/api/screenshots", "/api/screenshots/file") and request.method == "GET":
+        allowed = True
+    if not allowed:
         return _Resp("Not available on mobile", status_code=403)
     if path.startswith(("/m/pair", "/m/setup", "/m/ca.crt", "/m/manifest", "/m/sw.js")):
         return await call_next(request)               # pairing/setup = the login
