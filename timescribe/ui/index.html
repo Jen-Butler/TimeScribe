@@ -985,6 +985,10 @@ async function loadMobile() {
     $('mobState').className = 'pill ' + (m.enabled ? (m.listening ? 'ok' : 'err') : '');
     $('mobPair').disabled = !m.enabled;
     const fwKnown = m.firewall_rule !== null && m.firewall_rule !== undefined;
+    if (!fwKnown && m.enabled) {
+      $('mobFw').innerHTML = '<span style="color:var(--muted)">Checking Windows Firewall…</span>';
+      clearTimeout(window._mobFwPoll); window._mobFwPoll = setTimeout(loadMobile, 4000);   // result arrives in the background
+    }
     $('mobFwBtn').style.display = (m.enabled && fwKnown && !m.firewall_rule) ? '' : 'none';
     $('mobFw').innerHTML = !m.enabled ? '' : (!fwKnown ? '' : (m.firewall_rule
       ? '<span class="ok-text">Windows Firewall rule present (private networks only).</span>'
@@ -1014,10 +1018,10 @@ $('mobPair').onclick = async () => {
   try {
     const r = await api('/api/mobile/pair', {method:'POST'});
     $('mobPairBox').style.display = '';
-    $('mobQr').innerHTML = r.qr_svg || '<div style="color:#333;font-size:12px;padding:20px">QR unavailable — type the address</div>';
+    $('mobQr').innerHTML = r.qr_png ? '<img src="' + r.qr_png + '" alt="Pairing QR code" style="width:260px;height:260px;image-rendering:pixelated;display:block">'
+                                     : '<div style="color:#333;font-size:12px;padding:20px">QR unavailable — type the address</div>';
     $('mobPairUrl').textContent = r.url;
     $('mobCode').textContent = r.code.replace(/(.{4})(.{4})/, '$1-$2');
-    const svg = $('mobQr').querySelector('svg'); if (svg) { svg.setAttribute('width', '180'); svg.setAttribute('height', '180'); }
   } catch (e) { showToast('Pairing failed: ' + e.message, false); }
 };
 $('mobFwBtn').onclick = async () => {

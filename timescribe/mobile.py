@@ -104,18 +104,21 @@ def new_pairing_code() -> dict:
                 _pending.pop(c, None)
         _pending[code] = exp
     url = f"{base_url()}/m/pair?code={code}"
-    return {"code": code, "url": url, "expires_in": PAIR_TTL_S, "qr_svg": _qr_svg(url)}
+    return {"code": code, "url": url, "expires_in": PAIR_TTL_S, "qr_png": _qr_svg(url)}
 
 
 def _qr_svg(text: str) -> str:
+    """QR as a data: URI (PNG, 4-module quiet zone, big modules). A PNG with a
+    generous quiet zone scans as a link reliably; small vector QRs on screen
+    tend to be read by phone cameras as a 'document'."""
     try:
-        import segno
+        import base64
         import io
+        import segno
         buf = io.BytesIO()
-        segno.make(text, error="m").save(buf, kind="svg", scale=6, border=2,
-                                         dark="#111", light=None, xmldecl=False,
-                                         svgclass=None, lineclass=None)
-        return buf.getvalue().decode("utf-8")
+        segno.make(text, error="m").save(buf, kind="png", scale=10, border=4,
+                                         dark="#000000", light="#ffffff")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
     except Exception as exc:              # segno missing -> type the URL instead
         print(f"[mobile] QR unavailable: {exc}")
         return ""
@@ -240,19 +243,82 @@ def apply(fastapi_app) -> None:
 FW_RULE = "TimeScribe Mobile"
 
 
-def firewall_rule_exists() -> Optional[bool]:
-    """True/False, or None if it can't be determined (non-Windows)."""
+_fw_cache: dict = {"at": 0.0, "value": None, "running": False}
+
+
+def _fw_query() -> Optional[bool]:
+    """Parse `netsh advfirewall firewall show rule name=all dir=in`: fast,
+    unprivileged, and -- unlike Get-NetFirewallPortFilter -- doesn't abort
+    with 'Access is denied' on protected rules. A rule counts if it is
+    enabled, Allow, TCP or Any protocol, and its LocalPort explicitly lists
+    the mobile port (a single port, a list, or a range). Program rules with
+    LocalPort 'Any' are ignored: they don't open the port for this process."""
+    import re
     import subprocess
+    p = port()
+    try:
+        r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule",
+                            "name=all", "dir=in"], capture_output=True, text=True,
+                           timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception as exc:
+        print(f"[mobile] firewall check failed: {exc}")
+        return None
+    text = r.stdout or ""
+    if not text.strip():
+        return None
+
+    def covers(ports: str) -> bool:
+        for part in ports.replace(" ", "").split(","):
+            if not part or part.lower() == "any":
+                continue
+            if part.isdigit() and int(part) == p:
+                return True
+            m = re.fullmatch(r"(\d+)-(\d+)", part)
+            if m and int(m.group(1)) <= p <= int(m.group(2)):
+                return True
+        return False
+
+    for block in re.split(r"\n\s*\n", text):
+        fields = {}
+        for line in block.splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                fields[k.strip().lower()] = v.strip()
+        if not fields.get("rule name"):
+            continue
+        if fields.get("enabled", "").lower() != "yes":
+            continue
+        if fields.get("action", "").lower() != "allow":
+            continue
+        if fields.get("protocol", "").upper() not in ("TCP", "ANY"):
+            continue
+        if covers(fields.get("localport", "")):
+            return True
+    return False
+
+
+def firewall_rule_exists(force: bool = False) -> Optional[bool]:
+    """True if an enabled inbound Allow rule explicitly covers the mobile
+    port (any name -- a hand-made rule counts); False if none; None while
+    the check is still running. The PowerShell query takes several seconds,
+    so it runs in a background thread and the result is cached for 5 min."""
     import sys
     if not sys.platform.startswith("win"):
         return None
-    try:
-        r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule",
-                            f"name={FW_RULE}"], capture_output=True, text=True,
-                           timeout=15, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        return r.returncode == 0 and FW_RULE in (r.stdout or "")
-    except Exception:
-        return None
+    fresh = time.time() - _fw_cache["at"] < 300
+    if (fresh and not force) or _fw_cache["running"]:
+        return _fw_cache["value"] if fresh else None
+
+    def _run():
+        try:
+            _fw_cache["value"] = _fw_query()
+            _fw_cache["at"] = time.time()
+        finally:
+            _fw_cache["running"] = False
+
+    _fw_cache["running"] = True
+    threading.Thread(target=_run, daemon=True, name="fw-check").start()
+    return _fw_cache["value"] if fresh else None
 
 
 def open_firewall() -> str:
@@ -267,4 +333,5 @@ def open_firewall() -> str:
     subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
                    capture_output=True, text=True, timeout=120,
                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    firewall_rule_exists(force=True)
     return "requested"
