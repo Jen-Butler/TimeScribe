@@ -17,7 +17,7 @@
         --good:#22c55e;--bad:#ef4444;--warn:#f59e0b;--input:#0b1220;--btn:#334155}
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}
-  body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+  body{padding-bottom:calc(132px + env(safe-area-inset-bottom))}
   header{position:sticky;top:0;z-index:5;background:var(--bg);padding:calc(8px + env(safe-area-inset-top)) 12px 8px;border-bottom:1px solid var(--line)}
   .row{display:flex;align-items:center;gap:8px} .grow{flex:1}
   h1{font-size:15px;margin:0;color:var(--muted);font-weight:600;letter-spacing:.02em}
@@ -49,10 +49,10 @@
   button.good{background:var(--good);color:#052e16} button.accent{background:var(--accent);color:#082f49}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--muted)} button.sm{padding:7px 10px;font-size:13px}
   label.nc{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-top:8px}
-  .bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;z-index:5}
-  .bar button{flex:1;padding:14px}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:8px 12px calc(8px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;z-index:5}
+  .bar button{padding:12px 6px;font-size:14px}
   .empty{color:var(--muted);text-align:center;padding:40px 12px}
-  .toast{position:fixed;left:12px;right:12px;bottom:calc(92px + env(safe-area-inset-bottom));background:#111827;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px;z-index:9;box-shadow:0 8px 30px rgba(0,0,0,.5)} .toast.err{border-color:var(--bad)}
+  .toast{position:fixed;left:12px;right:12px;bottom:calc(140px + env(safe-area-inset-bottom));background:#111827;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px;z-index:9;box-shadow:0 8px 30px rgba(0,0,0,.5)} .toast.err{border-color:var(--bad)}
   .sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:8;align-items:flex-end} .sheet.open{display:flex}
   .sheet .panel{background:var(--bg);width:100%;max-height:88vh;border-radius:16px 16px 0 0;padding:12px;display:flex;flex-direction:column}
   .sheet input[type=search]{width:100%;padding:12px;font-size:16px;border-radius:10px;border:1px solid var(--line);background:var(--input);color:var(--text)}
@@ -104,9 +104,12 @@
 </header>
 <main id="main"></main>
 <div class="bar" id="bar">
-  <button id="btnAdd" class="ghost">+ Entry</button>
-  <button id="btnDigest">Run digest</button>
-  <button id="btnPost" class="accent">Post approved</button>
+  <div class="row" style="width:100%">
+    <button id="btnAdd" class="ghost grow">+ Entry</button>
+    <button id="btnGaps" class="grow">Fill gaps</button>
+    <button id="btnDigest" class="grow">Run digest</button>
+  </div>
+  <button id="btnPost" class="accent" style="width:100%">Post approved</button>
 </div>
 
 <div class="sheet" id="sheet"><div class="panel">
@@ -565,6 +568,17 @@
   $('btnAdd').onclick = async () => {
     try { const r = await api('/api/drafts/add?day='+iso(day), {method:'POST'}); flashIndex = r.index; await load(); }
     catch (e) { toast('Add failed: ' + e.message, false); }
+  };
+  $('btnGaps').onclick = async () => {
+    if (!status.halo_connected) return toast('Halo isn\'t connected on the PC', false);
+    if (!confirm('Look at the Halo timesheet for this day and draft entries for the unlogged gaps from your activity?')) return;
+    $('btnGaps').disabled = true; $('btnGaps').textContent = 'Filling…';
+    try {
+      const r = await api('/api/drafts/fill-gaps?day='+iso(day), {method:'POST'});
+      toast(r.note ? r.note : `Filled ${r.added||0} gap entr${(r.added===1)?'y':'ies'} (${r.gaps ? r.gaps.length : 0} gap${(r.gaps||[]).length===1?'':'s'} found)`, true, 6000);
+      await load();
+    } catch (e) { toast('Fill gaps failed: ' + e.message, false); }
+    finally { $('btnGaps').disabled = false; $('btnGaps').textContent = 'Fill gaps'; }
   };
   $('btnDigest').onclick = async () => {
     const dig = await api('/api/digest?day='+iso(day)).catch(() => ({entries: []}));
