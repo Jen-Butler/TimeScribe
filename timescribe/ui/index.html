@@ -458,6 +458,19 @@
           <option value="30">30 days</option>
           <option value="60">60 days</option>
         </select></label>
+      <label style="margin:0;font-size:12px;color:var(--muted)">Capture size
+        <select id="shotsSize" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+          <option value="0">Full resolution</option>
+          <option value="2560">2560 px wide</option>
+          <option value="1920">1920 px wide</option>
+          <option value="1280">1280 px wide (small)</option>
+        </select></label>
+      <label style="margin:0;font-size:12px;color:var(--muted)">Quality
+        <select id="shotsQuality" style="width:auto;padding:4px 8px;font-size:13px;margin-left:6px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+          <option value="90">High</option>
+          <option value="80">Good</option>
+          <option value="60">Compact</option>
+        </select></label>
     </div>
 
     <label style="display:block;margin:12px 0 4px">Never capture these apps <span style="color:var(--muted)">(exe names, comma-separated — e.g. a password manager)</span></label>
@@ -1151,6 +1164,8 @@ async function loadShotsSettings() {
     $('shotsEnabled').checked = !!c.screenshots_enabled;
     $('shotsInterval').value = String(c.screenshots_interval_min || 2);
     $('shotsRetention').value = String(c.screenshots_retention_days || 14);
+    $('shotsSize').value = String(c.screenshots_max_width == null ? 0 : c.screenshots_max_width);
+    $('shotsQuality').value = String(c.screenshots_quality || 80);
     $('shotsExclude').value = (c.screenshots_exclude_apps || []).join(', ');
     $('shotsStats').textContent =
       `Storage used: ${fmtBytes(st.storage_bytes)} · today: ${st.count_today || 0} shot(s)`
@@ -1169,6 +1184,8 @@ if ($('btnShotsSave')) $('btnShotsSave').onclick = async () => {
         screenshots_enabled: $('shotsEnabled').checked,
         screenshots_interval_min: parseInt($('shotsInterval').value, 10) || 2,
         screenshots_retention_days: parseInt($('shotsRetention').value, 10) || 14,
+        screenshots_max_width: parseInt($('shotsSize').value, 10) || 0,
+        screenshots_quality: parseInt($('shotsQuality').value, 10) || 80,
         screenshots_exclude_apps: $('shotsExclude').value.split(',').map(x => x.trim()).filter(Boolean),
       })});
     $('shotsMsg').textContent = 'Saved.';

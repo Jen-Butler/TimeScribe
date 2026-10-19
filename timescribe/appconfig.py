@@ -99,8 +99,8 @@ DEFAULTS: Dict[str, Any] = {
     "screenshots_enabled": False,
     "screenshots_interval_min": 2,        # periodic shot cadence while active
     "screenshots_retention_days": 14,     # auto-purge older day folders
-    "screenshots_max_width": 1280,        # downscale for disk economy
-    "screenshots_quality": 60,            # JPEG quality
+    "screenshots_max_width": 0,           # 0 = full resolution (retention keeps disk bounded)
+    "screenshots_quality": 80,            # JPEG quality
     "screenshots_idle_skip_s": 60,        # no input this long -> skip capture
     "screenshots_exclude_apps": [],       # exe names never to capture
 }

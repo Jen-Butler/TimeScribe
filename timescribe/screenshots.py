@@ -189,11 +189,12 @@ def capture(app: str, title: str, reason: str) -> Optional[dict]:
     """Grab all screens, downscale to max width, save JPEG, index it."""
     from PIL import ImageGrab
     cfg = appconfig.load()
-    max_w = int(cfg.get("screenshots_max_width", 1280))
-    quality = int(cfg.get("screenshots_quality", 60))
+    max_w = int(cfg.get("screenshots_max_width", 0) or 0)   # 0 = full resolution
+    quality = int(cfg.get("screenshots_quality", 80))
     img = ImageGrab.grab(all_screens=True)
-    if img.width > max_w:
-        img = img.resize((max_w, int(img.height * max_w / img.width)))
+    if max_w and img.width > max_w:
+        from PIL import Image
+        img = img.resize((max_w, int(img.height * max_w / img.width)), Image.LANCZOS)
     img = img.convert("RGB")
     now = datetime.now()
     d = now.date()

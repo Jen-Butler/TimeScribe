@@ -294,6 +294,8 @@ class ConfigUpdate(BaseModel):
     ui_colors: Optional[dict] = None             # {var(no --): value} overrides
     screenshots_enabled: Optional[bool] = None
     screenshots_interval_min: Optional[int] = None
+    screenshots_max_width: Optional[int] = None
+    screenshots_quality: Optional[int] = None
     screenshots_retention_days: Optional[int] = None
     screenshots_exclude_apps: Optional[list] = None
 
