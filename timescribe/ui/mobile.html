@@ -35,7 +35,7 @@
   .times{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
   .times input.tmi{background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 6px;font-size:17px;width:76px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
   .times input.tmi.bad{border-color:var(--bad)} .times input.tmi::placeholder{color:#64748b;font-size:13px;letter-spacing:0}
-  .mergebar{position:sticky;top:0;z-index:4;background:#172554;border:1px solid var(--accent);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px;display:flex;gap:8px;align-items:center}
+  .mergebar{background:#172554;border:1px solid var(--accent);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px;display:flex;gap:8px;align-items:center}
   .card.mergeable{border-color:var(--accent);border-style:dashed}
   .card.anchor{outline:2px solid var(--accent)}
   .ticket{margin-top:8px;display:flex;align-items:center;gap:8px}
@@ -489,7 +489,11 @@
       } else if (act === 'ignore') {
         await api('/api/drafts/ignore?day='+iso(day), {method:'POST', body: JSON.stringify({index:i})}); toast('Ignored'); await load();
       } else if (act === 'merge') {
-        mergeAnchor = i; render(); window.scrollTo({top: 0, behavior: 'smooth'});
+        // Keep the selected card exactly where it is on screen: the banner
+        // inserted at the top would otherwise push everything down.
+        const before = card.getBoundingClientRect().top;
+        mergeAnchor = i; render();
+        const c2 = $('card'+i); if (c2) window.scrollBy(0, c2.getBoundingClientRect().top - before);
       } else if (act === 'mergehere') {
         const other = mergeAnchor; mergeAnchor = null;
         await api('/api/drafts/merge?day='+iso(day), {method:'POST', body: JSON.stringify({anchor_index: i, other_index: other})});
