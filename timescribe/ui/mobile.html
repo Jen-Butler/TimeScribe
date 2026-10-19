@@ -34,7 +34,7 @@
   .card.approved{border-color:var(--good)} .card.posted{opacity:.6} .card.flash{outline:2px solid var(--accent)}
   .times{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
   .times input.tmi{background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 6px;font-size:17px;width:76px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
-  .times input.tmi.bad{border-color:var(--bad)}
+  .times input.tmi.bad{border-color:var(--bad)} .times input.tmi::placeholder{color:#64748b;font-size:13px;letter-spacing:0}
   .mergebar{position:sticky;top:0;z-index:4;background:#172554;border:1px solid var(--accent);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px;display:flex;gap:8px;align-items:center}
   .card.mergeable{border-color:var(--accent);border-style:dashed}
   .card.anchor{outline:2px solid var(--accent)}
@@ -228,7 +228,9 @@
       smart: (a,b) => (order[drafts[a].status]||0) - (order[drafts[b].status]||0) || byStart(a,b),
       start_asc: byStart, start_desc: (a,b) => byStart(b,a), end_asc: byEnd, end_desc: (a,b) => byEnd(b,a),
     }[sortMode || 'smart'];
-    const idx = drafts.map((d,i) => i).sort(cmp);
+    // Entries with no times yet (fresh manual ones) always sit at the top, whatever the sort.
+    const blank = i => !(drafts[i].start_time && drafts[i].end_time) && drafts[i].status !== 'posted';
+    const idx = drafts.map((d,i) => i).sort((a,b) => (blank(b) - blank(a)) || cmp(a,b));
     if (!drafts.length) { m.innerHTML = '<div class="empty">No time entries for this day yet.<br>Tap <b>Run digest</b> to build them from the activity log, or <b>+ Entry</b> to add one by hand.</div>'; return; }
     const sortBar = `<div class="row" style="margin:0 0 8px;font-size:13px;color:var(--muted)"><span class="grow">${drafts.length} entr${drafts.length===1?'y':'ies'}</span>Sort
       <select id="sortSel" style="background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:14px">
@@ -246,8 +248,8 @@
       const t = d.ticket_id ? `#${d.ticket_id} · ${esc(d.client||'')} — ${esc(d.subject||'')}` : 'Quick Time (no ticket)';
       return `<div class="card ${st}${flashIndex === i ? ' flash' : ''}${mergeable ? ' mergeable' : ''}${mergeAnchor === i ? ' anchor' : ''}" data-i="${i}" id="card${i}">
         <div class="times">
-          <input class="tmi" inputmode="numeric" autocomplete="off" enterkeyhint="done" maxlength="5" value="${esc(d.start_time)}" data-f="start_time" ${posted?'disabled':''}> –
-          <input class="tmi" inputmode="numeric" autocomplete="off" enterkeyhint="done" maxlength="5" value="${esc(d.end_time)}" data-f="end_time" ${posted?'disabled':''}>
+          <input class="tmi" inputmode="numeric" autocomplete="off" enterkeyhint="done" maxlength="5" placeholder="start" value="${esc(d.start_time)}" data-f="start_time" ${posted?'disabled':''}> –
+          <input class="tmi" inputmode="numeric" autocomplete="off" enterkeyhint="done" maxlength="5" placeholder="end" value="${esc(d.end_time)}" data-f="end_time" ${posted?'disabled':''}>
           <span class="grow"></span>
           ${posted ? '<span class="chip ok">posted</span>' : `<button class="ghost sm" data-act="ignore" title="Ignore">✕</button>`}
         </div>
@@ -265,7 +267,7 @@
         </div>`}
       </div>`;
     }).join('');
-    if (flashIndex != null) { const c = $('card'+flashIndex); if (c) c.scrollIntoView({behavior:'smooth', block:'center'}); flashIndex = null; }
+    if (flashIndex != null) { const c = $('card'+flashIndex); if (c) { c.scrollIntoView({behavior:'smooth', block:'center'}); const f = c.querySelector('[data-f=start_time]'); if (f && !f.value) setTimeout(() => f.focus(), 350); } flashIndex = null; }
     const mc = $('mergeCancel'); if (mc) mc.onclick = () => { mergeAnchor = null; render(); };
     const ss = $('sortSel'); if (ss) ss.onchange = () => { sortMode = ss.value; render(); };
   }

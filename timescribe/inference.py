@@ -303,7 +303,7 @@ def build_combined(adapter, target: Optional[date_cls] = None,
         # drafts (you may be curating them). Only ADD drafts for windows not
         # already covered by an existing draft (any status) or by logged
         # time, so new activity through the day still produces drafts.
-        occupied = list(covered)
+        occupied = list(covered) + drafts.ignored_windows(target)   # dismissed time stays dismissed
         for x in existing:
             s2 = drafts._hm_to_min(x.get("start_time"))
             e2 = drafts._hm_to_min(x.get("end_time"))

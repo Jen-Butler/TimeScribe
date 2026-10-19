@@ -120,9 +120,10 @@ def _overlap_min(a_s, a_e, b_s, b_e) -> int:
 
 
 def is_ignored(item: dict, ignored: List[dict]) -> bool:
-    """A new draft matches an ignored one if it's for the same ticket
-    (both None counts as same) and its time window substantially overlaps
-    the ignored window -- tolerant of the AI shifting times between runs."""
+    """A new draft matches an ignored one if its time window substantially
+    overlaps the ignored window -- tolerant of the AI shifting times (and
+    tickets) between runs. Ignoring means "don't draft this stretch of
+    time again", so the ticket is deliberately NOT part of the match."""
     def _mins(hm):
         try:
             h, m = map(int, (hm or "").split(":"))
@@ -133,8 +134,6 @@ def is_ignored(item: dict, ignored: List[dict]) -> bool:
     if s is None or e is None or e <= s:
         return False
     for ig in ignored:
-        if (ig.get("ticket_id") or None) != (item.get("ticket_id") or None):
-            continue
         igs, ige = _mins(ig.get("start_time")), _mins(ig.get("end_time"))
         if igs is None or ige is None or ige <= igs:
             continue
@@ -143,6 +142,16 @@ def is_ignored(item: dict, ignored: List[dict]) -> bool:
         if shorter > 0 and overlap / shorter >= 0.5:
             return True
     return False
+
+
+def ignored_windows(d: date_cls) -> List[tuple]:
+    """[start_min, end_min) windows the user has dismissed for this day."""
+    out = []
+    for ig in load_ignored(d):
+        s, e = _hm_to_min(ig.get("start_time")), _hm_to_min(ig.get("end_time"))
+        if s is not None and e is not None and e > s:
+            out.append((s, e))
+    return out
 
 
 def filter_ignored(d: date_cls, items: List[dict]) -> List[dict]:

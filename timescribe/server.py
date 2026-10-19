@@ -979,22 +979,20 @@ def drafts_suggest(day: str = None):
 
 @app.post("/api/drafts/add")
 def drafts_add(day: str = None):
-    """Add a blank manual draft (works in every mode, incl. MCP-only)."""
-    from datetime import datetime as _now_dt
+    """Add a blank manual draft (works in every mode, incl. MCP-only).
+    Times are left empty for the technician to fill in; an entry can't be
+    approved or posted until it has a valid start/end."""
     target = _date.fromisoformat(day) if day else _date.today()
     items = _drafts.load(target)
-    now = _now_dt.now()
-    start_m = (now.hour * 60 + now.minute) // 5 * 5
-    end_m = min(start_m + 30, 23 * 60 + 55)
-    fmt = lambda m: f"{m // 60:02d}:{m % 60:02d}"
     items.append({
         "ticket_id": None,
-        "start_time": fmt(start_m),
-        "end_time": fmt(end_m),
+        "start_time": "",
+        "end_time": "",
         "note": "",
         "confidence": 0.0,
         "client": "", "subject": "(manual entry)",
         "status": "draft",
+        "manual": True,
     })
     _drafts.save(target, items)
     return {"ok": True, "index": len(items) - 1}
@@ -1041,6 +1039,13 @@ def drafts_action(body: DraftAction, day: str = None):
               "unapprove": "draft"}.get(body.action)
     if not status:
         raise HTTPException(400, "action must be approve, unapprove, or reject")
+    if status == "approved":
+        items = _drafts.load(target)
+        if 0 <= body.index < len(items):
+            it = items[body.index]
+            s_, e_ = _drafts._hm_to_min(it.get("start_time")), _drafts._hm_to_min(it.get("end_time"))
+            if s_ is None or e_ is None or e_ <= s_:
+                raise HTTPException(400, "Set a start and end time before approving")
     return _drafts.set_status(target, body.index, status)
 
 
