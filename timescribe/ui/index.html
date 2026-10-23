@@ -836,8 +836,21 @@ function applyTheme(mode) {
   if (meta) meta.content = mode === 'dark' ? '#191b1d' : '#f2f2f3';
   try { localStorage.setItem('ts_theme', mode); } catch (e) { /* ignore */ }
 }
+const TS_BASE_VARS = ['bg', 'surface', 'text', 'border', 'input-bg', 'muted'];
 $('btnTheme').onclick = () => {
-  applyTheme(document.body.classList.contains('dark') ? 'light' : 'dark');
+  const mode = document.body.classList.contains('dark') ? 'light' : 'dark';
+  applyTheme(mode);
+  // A colour preset pins the base colours as explicit overrides, which would
+  // beat the light/dark theme and make the toggle look broken. The toggle
+  // wins: drop pinned base colours, keep accent/success/error.
+  if (typeof _appCfg !== 'undefined' && _appCfg.ui_colors) {
+    const pinned = TS_BASE_VARS.filter(k => _appCfg.ui_colors[k]);
+    if (pinned.length) {
+      pinned.forEach(k => delete _appCfg.ui_colors[k]);
+      applyAppearance(); saveAppearance();
+      if (typeof showToast === 'function') showToast('Switched to ' + mode + ' mode — the preset\'s background colours were cleared so the theme shows; accent colours kept.', true, 5000);
+    }
+  }
   if (typeof renderColorGrid === 'function') renderColorGrid();  // refresh picker defaults for the new mode
 };
 try { applyTheme(localStorage.getItem('ts_theme') === 'dark' ? 'dark' : 'light'); } catch (e) { /* ignore */ }
@@ -855,7 +868,7 @@ const TS_DARK_DEFAULTS = { bg:'#191b1d', surface:'#232629', text:'#e6e7e8',
   accent:'#86a9cc', border:'#43474c', 'input-bg':'#232629', muted:'#9b9d9e',
   good:'#86b894', bad:'#c98b8b' };
 const TS_PRESETS = [
-  { name:'Blueprint', colors:{} },
+  { name:'Default (follows light/dark)', colors:{} },
   { name:'Midnight', colors:{ bg:'#0f1720', surface:'#16212e', text:'#dfe8f2', accent:'#5aa9e6', border:'#2a3a4d', 'input-bg':'#16212e', muted:'#8aa0b6', good:'#5fbf8f', bad:'#e0736b' } },
   { name:'Solarized', colors:{ bg:'#fdf6e3', surface:'#eee8d5', text:'#073642', accent:'#268bd2', border:'#d8d0bd', 'input-bg':'#eee8d5', muted:'#657b83', good:'#859900', bad:'#dc322f' } },
   { name:'Forest', colors:{ bg:'#eef3ec', surface:'#dfe9db', text:'#1e2b22', accent:'#3e7d54', border:'#c4d3bd', 'input-bg':'#dfe9db', muted:'#5c6e60', good:'#3e7d54', bad:'#b25a4a' } },
@@ -936,7 +949,8 @@ function renderPresets() {
     b.onclick = () => {
       _appCfg.ui_colors = Object.assign({}, p.colors);
       applyAppearance(); renderColorGrid(); saveAppearance();
-      const m = $('appearanceMsg'); if (m) m.textContent = p.name + ' applied.';
+      const m = $('appearanceMsg');
+      if (m) m.textContent = p.name + ' applied.' + (Object.keys(p.colors).length ? ' (Presets set their own background; the ☾/☀ toggle clears that and returns to the light/dark theme.)' : '');
     };
     box.appendChild(b);
   });
