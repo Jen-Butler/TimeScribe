@@ -71,6 +71,19 @@ def _api_key_for(provider: str) -> Optional[str]:
     return appconfig.get_secret(f"{provider}_api_key")
 
 
+def _meter(provider: str, model: str, usage, in_key: str, out_key: str) -> None:
+    """Price this call from the provider's own token counts and append it to
+    the local spend ledger (never raises)."""
+    try:
+        from timescribe import aicost
+        i = int(getattr(usage, in_key, 0) or 0)
+        o = int(getattr(usage, out_key, 0) or 0)
+        c = aicost.record(provider, model, i, o)
+        print(f"[llm] {provider}/{model}: {i} in + {o} out tokens = ${c:.4f}")
+    except Exception as exc:
+        print(f"[llm] metering skipped: {exc}")
+
+
 def _call_anthropic(system_prompt, messages, model, temperature, max_tokens) -> str:
     from anthropic import Anthropic
     key = _api_key_for("anthropic")
@@ -81,6 +94,7 @@ def _call_anthropic(system_prompt, messages, model, temperature, max_tokens) -> 
         model=model, max_tokens=max_tokens, temperature=temperature,
         system=system_prompt, messages=messages,
     )
+    _meter("anthropic", model, getattr(resp, "usage", None), "input_tokens", "output_tokens")
     return resp.content[0].text if resp.content else ""
 
 
@@ -98,6 +112,7 @@ def _call_openai(system_prompt, messages, model, temperature, max_tokens) -> str
         model=model, max_tokens=max_tokens, temperature=temperature,
         messages=oai_messages,
     )
+    _meter("openai", model, getattr(resp, "usage", None), "prompt_tokens", "completion_tokens")
     return resp.choices[0].message.content or ""
 
 

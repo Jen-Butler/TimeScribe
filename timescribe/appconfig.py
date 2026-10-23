@@ -54,6 +54,10 @@ DEFAULTS: Dict[str, Any] = {
     # Global noise floor: app-focus windows shorter than this are dropped
     # from the activity view, the digest feed and ticket matching alike.
     "min_focus_seconds": 10,
+    # AI spend: balance entered from the provider console (per provider) and
+    # the estimated-remaining threshold that turns the pill red.
+    "ai_balance": {},
+    "ai_balance_warn": 5.0,
     # Mobile access: second listener on the LAN for paired phones only.
     "mobile_enabled": False,
     "mobile_port": 8771,          # HTTP (pairing/setup); HTTPS uses port+1

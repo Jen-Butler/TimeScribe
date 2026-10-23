@@ -179,6 +179,28 @@ def mobile_sw():
                  headers={"Service-Worker-Allowed": "/m", "Cache-Control": "no-cache"})
 
 
+# ---------- AI spend / estimated credits ----------
+
+from timescribe import aicost as _aicost
+
+
+class _Balance(BaseModel):
+    provider: Optional[str] = None
+    amount: float
+
+
+@app.get("/api/ai/usage")
+def ai_usage(provider: str = None):
+    return _aicost.summary(provider)
+
+
+@app.post("/api/ai/balance")
+def ai_balance(body: _Balance):
+    prov = (body.provider or _aicost.summary().get("provider"))
+    return {"ok": True, "balance": _aicost.set_balance(prov, body.amount),
+            "summary": _aicost.summary(prov)}
+
+
 @app.get("/api/mobile/info")
 def mobile_info():
     return {
@@ -282,6 +304,7 @@ class ConfigUpdate(BaseModel):
     mobile_enabled: Optional[bool] = None
     mobile_port: Optional[int] = None
     mobile_https: Optional[bool] = None
+    ai_balance_warn: Optional[float] = None
     combined_digest_drafts: Optional[bool] = None
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
     ticket_browser_profile: Optional[str] = None  # Edge profile-directory
@@ -332,6 +355,7 @@ def status():
         "halo_auth_mode": (cfg.get("halo_auth_mode") or "pkce"),
         "halo_secret_set": bool(a and a.load_client_secret()),
         "ai_health": __import__("timescribe.llm", fromlist=["ai_health"]).ai_health(),
+        "ai_budget": __import__("timescribe.aicost", fromlist=["summary"]).summary(),
         "screenshots": __import__("timescribe.screenshots", fromlist=["status"]).status(),
         "config": {k: v for k, v in cfg.items()
                    if "key" not in k.lower() and k != "mobile_devices"},

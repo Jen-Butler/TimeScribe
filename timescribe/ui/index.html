@@ -280,6 +280,22 @@
         </div>
       </details>
     </div>
+    <div id="aiBudget" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <strong style="font-size:13px">AI credits</strong>
+        <span id="aiBudgetMain" style="font-size:13px;color:var(--muted)">—</span>
+      </div>
+      <div id="aiBudgetDetail" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <label style="margin:0;font-size:12px;color:var(--muted)">Balance now (from the provider console) $
+          <input id="aiBalanceInput" type="number" step="0.01" min="0" placeholder="e.g. 25.00" style="width:96px;padding:4px 6px;font-size:13px;margin-left:4px"></label>
+        <button type="button" id="aiBalanceSet" style="margin:0;padding:4px 12px;font-size:12px">Set</button>
+        <label style="margin:0;font-size:12px;color:var(--muted)">Warn below $
+          <input id="aiWarnInput" type="number" step="0.5" min="0" value="5" style="width:70px;padding:4px 6px;font-size:13px;margin-left:4px"></label>
+        <button type="button" id="aiWarnSave" style="margin:0;padding:4px 12px;font-size:12px">Save</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">Neither provider exposes a live balance to an API key, so this is an estimate: the balance you enter minus what TimeScribe has spent since (every call's token counts, priced per model). Re-enter it whenever you check the console or top up.</div>
+    </div>
     <div id="mcpOnlyNote" style="display:none;color:var(--muted);font-size:12px;margin-top:8px">
       MCP-only mode: no API key, no in-app AI. Your activity data stays available to
       Claude through the MCP extension (below), and you process time entries with
@@ -990,6 +1006,45 @@ function showSettingsSection(sec) {
   if (sec === 'mobile') loadMobile();
 }
 
+// ---- AI credits (estimated): Settings panel + header pill ----
+const usd = v => (v == null ? '—' : (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2));
+function renderAiBudget(b) {
+  if (!b || !$('aiBudgetMain')) return;
+  const prov = b.provider === 'openai' ? 'OpenAI' : 'Anthropic';
+  if (b.balance_set) {
+    $('aiBudgetMain').innerHTML = `<span style="color:${b.low ? 'var(--bad)' : 'var(--good)'};font-weight:600">≈ ${usd(b.estimated_remaining)} left</span> on ${prov}`;
+    $('aiBudgetDetail').textContent = `Set to ${usd(b.balance_amount)} on ${(b.balance_as_of||'').replace('T',' ').slice(0,16)} · spent ${usd(b.spent_since_balance)} since · today ${usd(b.today)} (${b.calls_today} call${b.calls_today===1?'':'s'}) · this month ${usd(b.month)}`;
+  } else {
+    $('aiBudgetMain').innerHTML = `<span>no balance entered</span> · ${prov} spend today ${usd(b.today)}, this month ${usd(b.month)}`;
+    $('aiBudgetDetail').textContent = 'Enter the balance shown in the provider console to get an estimated remaining figure and a low-credit warning.';
+  }
+  if (document.activeElement !== $('aiWarnInput')) $('aiWarnInput').value = String(b.threshold ?? 5);
+  // Header pill: only speak up when it matters.
+  const pill = $('pillKey');
+  if (b.low && pill && !pill.textContent.startsWith('AI credits: exhausted')) {
+    pill.className = 'pill err';
+    pill.textContent = `AI credits ≈ ${usd(b.estimated_remaining)} left — top up soon`;
+    if (window._aiLowWarned !== Math.floor(b.estimated_remaining)) {
+      window._aiLowWarned = Math.floor(b.estimated_remaining);
+      showToast(`AI credits are estimated at ${usd(b.estimated_remaining)} (below your ${usd(b.threshold)} threshold). Top up before the digests stop.`, false, 9000);
+    }
+  }
+}
+$('aiBalanceSet').onclick = async () => {
+  const v = parseFloat($('aiBalanceInput').value);
+  if (isNaN(v) || v < 0) return showToast('Enter the balance as a number, e.g. 25.00', false);
+  try {
+    const r = await api('/api/ai/balance', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({amount: v})});
+    $('aiBalanceInput').value = ''; renderAiBudget(r.summary); showToast('Balance recorded — estimate starts from now.', true);
+  } catch (e) { showToast('Could not save balance: ' + e.message, false); }
+};
+$('aiWarnSave').onclick = async () => {
+  try {
+    await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ai_balance_warn: parseFloat($('aiWarnInput').value) || 0})});
+    showToast('Threshold saved.', true); refreshStatus();
+  } catch (e) { showToast('Save failed: ' + e.message, false); }
+};
+
 // ---- Settings > Mobile: LAN listener + phone pairing ----
 async function loadMobile() {
   try {
@@ -1289,6 +1344,8 @@ async function refreshStatus() {
       ((s.llm_provider === 'openai' ? s.openai_key_set : s.anthropic_key_set) ? 'set' : 'missing');
     $('pillKey').className = 'pill ' +
       ((s.llm_provider === 'openai' ? s.openai_key_set : s.anthropic_key_set) ? 'ok' : 'err');
+    // AI credits estimate (balance entered minus metered spend)
+    renderAiBudget(s.ai_budget);
     // AI health: if the last AI call failed on credits/billing, warn loudly.
     const ah = s.ai_health;
     if (ah && !ah.ok) {
