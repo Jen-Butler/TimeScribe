@@ -127,7 +127,10 @@ def _qr_svg(text: str) -> str:
     try:
         import base64
         import io
-        import segno
+        try:
+            import segno
+        except ImportError:                       # use the vendored copy
+            from timescribe._vendor import segno
         buf = io.BytesIO()
         segno.make(text, error="m").save(buf, kind="png", scale=10, border=4,
                                          dark="#000000", light="#ffffff")
