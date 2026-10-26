@@ -949,6 +949,11 @@ class HaloPSAAdapter(PSAAdapter):
             "subject": (r.get("subject") or r.get("note") or "")[:120],
             "customer": r.get("customer") or "",
             "charge_type": r.get("charge_type_name") or "",
+            # The timesheet event already carries the action's note text and
+            # its number on the ticket -- enough to show the note inline and
+            # deep-link to the action in Halo.
+            "note": (r.get("note") or ""),
+            "action_number": r.get("action_number"),
         }
 
     def _create_quick_time_appointment(self, entry: TimeEntry) -> str:

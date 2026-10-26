@@ -264,7 +264,7 @@
         <div class="row" style="margin-top:8px">
           ${posted ? '' : `<label class="nc" style="margin:0"><input type="checkbox" data-f="no_charge" ${d.no_charge?'checked':''}> No charge</label>`}
           <span class="grow"></span>
-          ${mergeable ? '<button class="accent sm" data-act="mergehere">Merge here</button>' : (posted || mergeAnchor != null ? '' : '<button class="ghost sm" data-act="merge">Merge</button>')}
+          ${mergeable ? '<button class="accent sm" data-act="mergehere">Merge here</button>' : (posted || mergeAnchor != null ? '' : '<button class="ghost sm" data-act="split">Split</button><button class="ghost sm" data-act="merge">Merge</button>')}
           <button class="ghost sm" data-act="activity">Activity</button>
         </div>
         ${posted ? '' : `<div class="actions">
@@ -476,11 +476,16 @@
         ${t.target_hours ? `<span class="chip">target ${t.target_hours} h</span>` : ''}
         ${t.unlogged_hours != null ? `<span class="chip ${t.unlogged_hours > 0 ? 'err' : ''}">${(t.unlogged_hours||0).toFixed(2)} h unlogged</span>` : ''}
       </div>`;
-      m.innerHTML = tot + (rows.length ? rows.map(r => `<div class="ts">
+      m.innerHTML = tot + (rows.length ? rows.map((r, k) => `<div class="ts" data-k="${k}" style="flex-wrap:wrap;cursor:pointer">
           <span class="tm">${esc(r.start)}–${esc(r.end)}</span>
-          <span class="what">${r.ticket_id ? `<b style="color:var(--accent)">#${r.ticket_id}</b> ${esc(r.subject||'')}` : esc(r.subject||'(no ticket)')}<small>${esc(r.customer||'')}${r.charge_type ? ' · ' + esc(r.charge_type) : ''}</small></span>
+          <span class="what">${r.ticket_id ? `<b style="color:var(--accent)">#${r.ticket_id}</b> ${esc(r.subject||'')}` : esc(r.subject||'(no ticket)')}<small>${esc(r.customer||'')}${r.charge_type ? ' · ' + esc(r.charge_type) : ''}${r.note ? ' · tap for note' : ''}</small></span>
           <span class="hrs">${(r.hours||0).toFixed(2)}</span>
+          ${r.note ? `<div class="tsnote" style="display:none;flex-basis:100%;white-space:pre-wrap;font-size:14px;background:var(--input);border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px">${esc(r.note)}${r.ticket_id && r.action_number && t.halo_base_url ? `<div style="margin-top:8px"><a href="${esc(t.halo_base_url)}/tickets?id=${r.ticket_id}&actionid=${r.action_number}" target="_blank" rel="noopener" style="color:var(--accent)">Open this entry in Halo ↗</a></div>` : ''}</div>` : ''}
         </div>`).join('') : '<div class="empty">Nothing on the Halo timesheet for this day.</div>');
+      m.querySelectorAll('.ts[data-k]').forEach(el => el.addEventListener('click', ev => {
+        if (ev.target.closest('a')) return;
+        const n = el.querySelector('.tsnote'); if (n) n.style.display = n.style.display === 'none' ? '' : 'none';
+      }));
     } catch (e) { m.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
   }
 
@@ -520,6 +525,16 @@
         await api('/api/drafts/action?day='+iso(day), {method:'POST', body: JSON.stringify({index:i, action:act})}); await load();
       } else if (act === 'ignore') {
         await api('/api/drafts/ignore?day='+iso(day), {method:'POST', body: JSON.stringify({index:i})}); toast('Ignored'); await load();
+      } else if (act === 'split') {
+        const d = drafts[i], a = hm2min(d.start_time), b = hm2min(d.end_time);
+        if (a == null || b == null || b <= a) return toast('Set valid start/end times first', false);
+        const mid = fmtClk(a + Math.round((b - a) / 2 / 5) * 5);
+        const raw = prompt(`Split ${h12(d.start_time)} – ${h12(d.end_time)} at what time?\n(24h or e.g. 230p)`, mid);
+        if (raw == null) return;
+        const at = parseTime(raw), atM = hm2min(at);
+        if (atM == null || !(atM > a && atM < b)) return toast(`Split time must be between ${d.start_time} and ${d.end_time}`, false);
+        await api('/api/drafts/split?day='+iso(day), {method:'POST', body: JSON.stringify({index: i, at})});
+        toast(`Split at ${h12(at)}`); flashIndex = i + 1; await load();
       } else if (act === 'merge') {
         // Keep the selected card exactly where it is on screen: the banner
         // inserted at the top would otherwise push everything down.

@@ -919,6 +919,7 @@ from timescribe.psa.adapter import TimeEntry as _TimeEntry
 class DraftAction(BaseModel):
     index: int
     action: str = ""     # "approve" | "reject" (unused for split)
+    at: Optional[str] = None   # split only: "HH:MM" to split at (default: midpoint)
 
 
 @app.post("/api/drafts/generate")
@@ -1024,7 +1025,8 @@ def drafts_add(day: str = None):
 
 @app.post("/api/drafts/split")
 def drafts_split(body: DraftAction, day: str = None):
-    """Split a draft into two halves at its midpoint (rounded to 5 min)."""
+    """Split a draft in two: at `at` (HH:MM) if given, else at its midpoint
+    (rounded to 5 min)."""
     target = _date.fromisoformat(day) if day else _date.today()
     items = _drafts.load(target)
     if not (0 <= body.index < len(items)):
@@ -1038,9 +1040,14 @@ def drafts_split(body: DraftAction, day: str = None):
     except (ValueError, KeyError):
         raise HTTPException(400, "draft has malformed times")
     start_m, end_m = sh * 60 + sm, eh * 60 + em
-    if end_m - start_m < 10:
-        raise HTTPException(400, "entry too short to split (needs >=10 min)")
-    mid_m = start_m + round((end_m - start_m) / 2 / 5) * 5
+    if body.at:
+        mid_m = _drafts._hm_to_min(body.at)
+        if mid_m is None or not (start_m < mid_m < end_m):
+            raise HTTPException(400, f"split time must be between {item['start_time']} and {item['end_time']}")
+    else:
+        if end_m - start_m < 10:
+            raise HTTPException(400, "entry too short to split (needs >=10 min)")
+        mid_m = start_m + round((end_m - start_m) / 2 / 5) * 5
     fmt = lambda m: f"{m // 60:02d}:{m % 60:02d}"
     first = dict(item, end_time=fmt(mid_m), status="draft")
     second = dict(item, start_time=fmt(mid_m), status="draft")

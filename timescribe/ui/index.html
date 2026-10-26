@@ -1872,13 +1872,26 @@ async function loadTimesheet() {
             ? `<a href="${r.halo_base_url}/ticket?id=${t.ticket_id}" onclick="event.preventDefault();openTicketUrl(this.href)" rel="noopener" title="Open ticket in Halo" style="color:var(--accent);font-size:11px;text-decoration:none;cursor:pointer">#${t.ticket_id} ↗</a>`
             : `<span style="color:var(--accent);font-size:11px">#${t.ticket_id}</span>`)
         : `<span style="color:var(--muted);font-size:11px">no ticket</span>`;
+      const escT = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
       div.innerHTML =
         `<strong>${t.start}${t.end ? '–' + t.end : ''}</strong>` +
         `<span style="color:var(--accent)">${t.hours != null ? t.hours + 'h' : ''}</span>` +
         tkt +
         `<span style="color:var(--muted);font-size:11px">${t.customer}</span>` +
         (t.charge_type ? `<span style="font-size:11px;color:${noCharge ? 'var(--muted)' : 'var(--good)'}">${t.charge_type}</span>` : '') +
-        `<span style="flex:1;min-width:180px">${t.subject}</span>`;
+        `<span style="flex:1;min-width:180px">${escT(t.subject)}</span>` +
+        (t.note ? `<span style="color:var(--muted);font-size:11px;cursor:pointer" class="tsToggle" title="Show the note on this time entry">▸ note</span>` : '') +
+        (t.note ? `<div class="tsNote" style="display:none;flex-basis:100%;white-space:pre-wrap;font-size:12px;color:var(--text);background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:4px">${escT(t.note)}` +
+          (t.ticket_id && t.action_number && r.halo_base_url ? `<div style="margin-top:6px"><a href="${r.halo_base_url}/tickets?id=${t.ticket_id}&actionid=${t.action_number}" onclick="event.preventDefault();openTicketUrl(this.href)" style="color:var(--accent);font-size:11px;text-decoration:none;cursor:pointer">Open this entry in Halo ↗</a></div>` : '') + `</div>` : '');
+      if (t.note) {
+        div.style.cursor = 'pointer';
+        div.addEventListener('click', ev => {
+          if (ev.target.closest('a')) return;
+          const n = div.querySelector('.tsNote'), tg = div.querySelector('.tsToggle');
+          const open = n.style.display === 'none';
+          n.style.display = open ? '' : 'none'; tg.textContent = open ? '▾ note' : '▸ note';
+        });
+      }
       el.appendChild(div);
     }
   } catch (e) {
