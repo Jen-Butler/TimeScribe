@@ -630,7 +630,7 @@
       return;
     }
     const rows = tickets.filter(t => !q || String(t.id).includes(q) || (t.client||'').toLowerCase().includes(q) || (t.subject||'').toLowerCase().includes(q)).slice(0, 60);
-    $('list').innerHTML = rows.length ? rows.map(t => `<div class="item" data-id="${t.id}"><b>#${t.id}</b> ${esc(t.subject)}<small>${esc(t.client)}${t.status ? ' · ' + esc(t.status) : ''}</small></div>`).join('')
+    $('list').innerHTML = rows.length ? rows.map(t => `<div class="item" data-id="${t.id}"><b>#${t.id}</b> ${esc(t.subject)}<small>${esc(t.client)}${t.status ? ' · ' + esc(t.status) : ''}${t.role === 'additional' ? ' · <span style="color:var(--warn)">additional agent</span>' : ''}</small></div>`).join('')
       : (/^\d+$/.test(q) ? `<div class="item" data-id="${q}"><b>#${q}</b> use this ticket number</div>` : `<div class="item">No matches in your ${tickets.length} tickets</div>`);
   }
   $('q').addEventListener('input', () => filterList($('q').value));

@@ -561,6 +561,36 @@ class HaloPSAAdapter(PSAAdapter):
         self._api_post("Client", [item])
         print(f"[halo] published org AI key to client {client_id} field '{field_name}'")
 
+    def _additional_agent_tickets(self, agent_id: int) -> list:
+        """Open tickets that list the agent under 'Additional agents' (Halo's
+        FaultAdditionalAgents table), via a one-shot Report Center query.
+        Returns [] quietly if the API application lacks reporting rights."""
+        sql = ("SELECT f.faultid AS id, f.symptom AS subject, ar.aareadesc AS client, "
+               "st.tstatusdesc AS status FROM FaultAdditionalAgents x "
+               "JOIN FAULTS f ON f.faultid = x.FAAFaultid "
+               "LEFT JOIN AREA ar ON ar.aarea = f.areaint "
+               "LEFT JOIN TSTATUS st ON st.tstatus = f.status "
+               f"WHERE x.FAAUnum = {int(agent_id)} AND coalesce(f.fdeleted,0) = 0 "
+               "AND coalesce(f.fmergedintofaultid,0) = 0 AND f.status <> 9")
+        try:
+            r = self._api_post("Report", [{"sql": sql, "_loadreportonly": True}])
+            rep = r[0] if isinstance(r, list) else r
+            rows = ((rep or {}).get("report") or {}).get("rows") or []
+        except Exception as exc:
+            print(f"[halo] additional-agent tickets unavailable ({str(exc)[:120]})")
+            return []
+        out = []
+        for row in rows:
+            try:
+                tid = int(row.get("id"))
+            except (TypeError, ValueError):
+                continue
+            out.append({"id": tid, "client": row.get("client") or "", "site": "",
+                        "subject": (row.get("subject") or "")[:120],
+                        "status": str(row.get("status") or ""), "role": "additional"})
+        print(f"[halo] additional-agent tickets: {len(out)} for agent {agent_id}")
+        return out
+
     def _ticket_row(self, r: dict) -> dict:
         return {
             "id": r.get("id"),
@@ -719,6 +749,13 @@ class HaloPSAAdapter(PSAAdapter):
             if len(rows) < 100:
                 break
             page += 1
+
+        # Tickets where this agent is an ADDITIONAL agent. The list endpoint
+        # has no filter for that (only the per-ticket detail carries
+        # additional_agents), so ask Report Center for the ids directly.
+        for r in self._additional_agent_tickets(agent_id):
+            if r["id"] not in seen:
+                out.append(r); seen.add(r["id"])
 
         out.sort(key=lambda t: t.get("id") or 0, reverse=True)
         self._mytix_cache = out

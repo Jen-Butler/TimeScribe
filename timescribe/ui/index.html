@@ -2715,7 +2715,7 @@ function tsRow(t) {
   const row = document.createElement('div');
   row.style.cssText = 'padding:8px;border-bottom:1px solid var(--border);cursor:pointer';
   const site = t.site && t.site !== t.client ? ` › ${(t.site||'').replace(/</g,'&lt;')}` : '';
-  row.innerHTML = `<strong>#${t.id}</strong> <span style="color:var(--muted)">${t.status||''}</span><br>`
+  row.innerHTML = `<strong>#${t.id}</strong> <span style="color:var(--muted)">${t.status||''}</span>${t.role === 'additional' ? ' <span style="color:var(--warn,#b8860b);font-size:11px">additional agent</span>' : ''}<br>`
     + `<span>${(t.client||'').replace(/</g,'&lt;')}${site}</span> — ${(t.subject||'').replace(/</g,'&lt;')}`;
   row.onmouseenter = () => row.style.background = 'var(--input-bg)';
   row.onmouseleave = () => row.style.background = '';
