@@ -19,3 +19,4 @@ aw_dist/
 mcp_err.txt
 # Stray executables in the repo root (build outputs live in ignored dirs)
 /*.exe
+recovery_*/

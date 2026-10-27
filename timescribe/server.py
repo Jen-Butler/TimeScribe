@@ -1023,6 +1023,15 @@ def drafts_add(day: str = None):
     return {"ok": True, "index": len(items) - 1}
 
 
+@app.post("/api/drafts/restore")
+def drafts_restore(day: str = None):
+    """Bring back a day's drafts from the sidelined (.corrupt) or backup
+    (.bak) copy. Safe: the current live file (if any) becomes the new .bak."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.restore_backup(target)
+    return {"ok": bool(items), "count": len(items)}
+
+
 @app.post("/api/drafts/split")
 def drafts_split(body: DraftAction, day: str = None):
     """Split a draft in two: at `at` (HH:MM) if given, else at its midpoint

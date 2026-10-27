@@ -2,6 +2,8 @@
 draft -> approved/rejected -> posted."""
 from __future__ import annotations
 import json
+import threading
+import time
 import os
 import shutil
 from datetime import date as date_cls, timedelta
@@ -23,55 +25,114 @@ def _path(d: date_cls) -> Path:
     return _dir() / f"{d.isoformat()}.json"
 
 
+_io_lock = threading.RLock()
+
+
+def _read_json(p: Path, retries: int = 4):
+    """Read + parse, retrying briefly on OS errors (on Windows a file being
+    replaced by a concurrent save raises PermissionError for a moment).
+    Returns the list, or raises json.JSONDecodeError / OSError."""
+    last = None
+    for i in range(retries):
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except OSError as exc:
+            last = exc
+            time.sleep(0.05 * (i + 1))
+    raise last
+
+
 def load(d: date_cls) -> List[dict]:
     p = _path(d)
-    if not p.exists():
-        return []
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        # A corrupt file must NOT be treated as "no drafts" -- that would let
-        # the next save overwrite recoverable data for good. Preserve it and
-        # fall back to the last good backup if we have one.
-        print(f"[drafts] {p.name} unreadable ({exc}); trying backup")
+    bak = p.with_name(p.name + ".bak")
+    corrupt = p.with_name(p.name + ".corrupt")
+    with _io_lock:
+        if not p.exists():
+            # No live file but a backup/sidelined copy exists: the live file
+            # was lost (or moved aside by an earlier false alarm). Recover it
+            # rather than reporting "no drafts" and letting the next save
+            # overwrite history.
+            for src in (corrupt, bak):
+                if src.exists():
+                    try:
+                        items = _read_json(src)
+                    except (json.JSONDecodeError, OSError):
+                        continue
+                    print(f"[drafts] {p.name} missing; recovered {len(items)} drafts from {src.name}")
+                    save(d, items)
+                    return items
+            return []
         try:
-            p.replace(p.with_name(p.name + ".corrupt"))
-        except OSError:
-            pass
-        bak = p.with_name(p.name + ".bak")
-        if bak.exists():
+            return _read_json(p)
+        except OSError as exc:
+            # Still unreadable after retries: a lock/AV scan/permission issue,
+            # NOT corruption. Serve the backup, leave the live file alone.
+            print(f"[drafts] {p.name} temporarily unreadable ({exc}); serving backup")
+            if bak.exists():
+                try:
+                    return _read_json(bak)
+                except (json.JSONDecodeError, OSError):
+                    pass
+            return []
+        except json.JSONDecodeError as exc:
+            # Genuinely corrupt: preserve it for forensics and fall back.
+            print(f"[drafts] {p.name} corrupt ({exc}); sidelining and using backup")
             try:
-                return json.loads(bak.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+                p.replace(corrupt)
+            except OSError:
                 pass
-        return []
+            if bak.exists():
+                try:
+                    items = _read_json(bak)
+                    save(d, items)
+                    return items
+                except (json.JSONDecodeError, OSError):
+                    pass
+            return []
 
 
 def save(d: date_cls, items: List[dict]) -> None:
-    """Persist the day's drafts. Atomic (temp file + os.replace so a crash
-    mid-write can't truncate the file) and keeps the previous version as a
-    .bak so an accidental wipe/replace is always recoverable."""
+    """Persist the day's drafts. Atomic (unique temp file + os.replace so a
+    crash mid-write can't truncate the file), serialised across threads,
+    retried on transient Windows sharing errors, and keeps the previous
+    version as a .bak so an accidental wipe/replace is always recoverable."""
     p = _path(d)
-    try:
-        if p.exists() and p.stat().st_size > 0:
-            shutil.copy2(p, p.with_name(p.name + ".bak"))
-    except OSError:
-        pass
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps(items, indent=2), encoding="utf-8")
-    os.replace(tmp, p)
+    with _io_lock:
+        try:
+            if p.exists() and p.stat().st_size > 0:
+                shutil.copy2(p, p.with_name(p.name + ".bak"))
+        except OSError:
+            pass
+        tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(items, indent=2), encoding="utf-8")
+        last = None
+        for i in range(5):
+            try:
+                os.replace(tmp, p)
+                return
+            except PermissionError as exc:
+                last = exc
+                time.sleep(0.05 * (i + 1))
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise last
 
 
 def restore_backup(d: date_cls) -> List[dict]:
     """Recover a day's drafts from its .bak (the version before the last
     save). Promotes the backup to the live file and returns it."""
     p = _path(d)
-    bak = p.with_name(p.name + ".bak")
-    if not bak.exists():
-        return []
-    items = json.loads(bak.read_text(encoding="utf-8"))
-    save(d, items)
-    return items
+    for src in (p.with_name(p.name + ".corrupt"), p.with_name(p.name + ".bak")):
+        if src.exists():
+            try:
+                items = _read_json(src)
+            except (json.JSONDecodeError, OSError):
+                continue
+            save(d, items)
+            return items
+    return []
 
 
 def set_status(d: date_cls, index: int, status: str,
