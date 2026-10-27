@@ -172,6 +172,7 @@
   let day = new Date(); day.setHours(0,0,0,0);
   let view = 'entries', drafts = [], tickets = null, pickIndex = null, saveTimers = {}, status = {}, minFocus = 10, flashIndex = null, mergeAnchor = null;
   let sortMode = null;   // null = follow the desktop's default sort until changed here (kept for this session only)
+  let tsRows = [], tsDay = '';   // Halo timesheet for the selected day (overlap checks)
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const api = async (path, opts) => {
     const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
@@ -211,6 +212,7 @@
       $('btnPost').disabled = !approved || !s.halo_connected || !!s.halo_warning;
       render();
       if (s.halo_connected) prefetchTickets(false).catch(() => {});
+      if (s.halo_connected) refreshTimesheet(d); else { tsRows = []; tsDay = d; }
     } catch (e) { toast('Load failed: ' + e.message, false); }
   }
 
@@ -275,6 +277,7 @@
     }).join('');
     if (flashIndex != null) { const c = $('card'+flashIndex); if (c) { c.scrollIntoView({behavior:'smooth', block:'center'}); const f = c.querySelector('[data-f=start_time]'); if (f && !f.value) setTimeout(() => f.focus(), 350); } flashIndex = null; }
     const mc = $('mergeCancel'); if (mc) mc.onclick = () => { mergeAnchor = null; render(); };
+    annotateOverlaps();
     const ss = $('sortSel'); if (ss) ss.onchange = () => { sortMode = ss.value; render(); };
   }
 
@@ -286,6 +289,47 @@
     const [ws, we] = workWindow();
     if (a < ws || b > we) return `outside your ${h12(fmtClk(ws))}–${h12(fmtClk(we))} day`;
     return '';
+  }
+  async function refreshTimesheet(d) {
+    try { const t = await api('/api/timesheet?day='+d); tsRows = t.rows || []; tsDay = d; }
+    catch (e) { tsRows = []; tsDay = d; }
+    if (view === 'entries') annotateOverlaps();
+  }
+  // Overlaps for entry i against the Halo timesheet and the other drafts.
+  function overlapsFor(i, st, en) {
+    const a = hm2min(st), b = hm2min(en); if (a == null || b == null || b <= a) return [];
+    const out = [];
+    const add = (s2, e2, label) => { const lo = Math.max(a, s2), hi = Math.min(b, e2); if (hi > lo) out.push({lo, hi, label}); };
+    if (tsDay === iso(day)) for (const r of tsRows) {
+      const s2 = hm2min(r.start), e2 = hm2min(r.end); if (s2 == null || e2 == null) continue;
+      add(s2, e2, `Halo ${r.ticket_id ? '#'+r.ticket_id : 'entry'} ${r.start}–${r.end}`);
+    }
+    drafts.forEach((d, j) => {
+      if (j === i || d.status === 'rejected') return;
+      const s2 = hm2min(d.start_time), e2 = hm2min(d.end_time); if (s2 == null || e2 == null) return;
+      // a posted draft is already on the timesheet above; skip to avoid double-reporting
+      if (d.status === 'posted' && tsDay === iso(day) && tsRows.length) return;
+      add(s2, e2, `${d.status === 'posted' ? 'posted' : 'entry'} ${d.start_time}–${d.end_time}${d.ticket_id ? ' #'+d.ticket_id : ''}`);
+    });
+    return out;
+  }
+  function overlapLine(i, st, en) {
+    const ov = overlapsFor(i, st, en); if (!ov.length) return '';
+    return `<div class="clock odd" data-ov>⚠ overlaps ${ov.slice(0,3).map(o => `${h12(fmtClk(o.lo))}–${h12(fmtClk(o.hi))} with ${esc(o.label)}`).join('; ')}${ov.length > 3 ? ` (+${ov.length-3} more)` : ''}</div>`;
+  }
+  function annotateOverlaps() {
+    let n = 0;
+    document.querySelectorAll('#main .card[data-i]').forEach(card => {
+      const i = +card.dataset.i, d = drafts[i]; if (!d || d.status === 'posted') return;
+      const st = card.querySelector('[data-f=start_time]')?.value || d.start_time, en = card.querySelector('[data-f=end_time]')?.value || d.end_time;
+      const html = overlapLine(i, st, en);
+      let el = card.querySelector('[data-ov]');
+      if (html) { n++; if (el) el.outerHTML = html; else card.querySelector('[data-clock]').insertAdjacentHTML('afterend', html); }
+      else if (el) el.remove();
+    });
+    let chip = $('ovChip');
+    if (n) { if (!chip) { chip = document.createElement('span'); chip.id = 'ovChip'; chip.className = 'chip err'; $('chips').appendChild(chip); } chip.textContent = `${n} overlap${n===1?'':'s'}`; }
+    else if (chip) chip.remove();
   }
   function clockLine(st, en) {
     const a = h12(st), b = h12(en); if (!a && !b) return '';
@@ -321,7 +365,7 @@
     const t = parseTime(el.value);
     if (!t) { el.classList.add('bad'); el.value = d[el.dataset.f] || ''; setTimeout(() => el.classList.remove('bad'), 1200); return; }
     el.classList.remove('bad'); el.value = t;
-    refreshClock(card);
+    refreshClock(card); annotateOverlaps();
     if (t !== d[el.dataset.f]) { clearTimeout(saveTimers[i]); saveCard(i, card); }
   });
 
@@ -646,12 +690,12 @@
     }
     L.insertAdjacentHTML('beforeend', `<div class="prog" style="margin-top:10px"><b>${ok}/${idx.length} posted</b></div>`);
     $('postClose').disabled = false;
-    await load();
+    tsDay = ''; await load();
   };
   $('postClose').onclick = () => $('postSheet').classList.remove('open');
 
-  $('prev').onclick = () => { mergeAnchor = null; day.setDate(day.getDate()-1); load(); };
-  $('next').onclick = () => { mergeAnchor = null; day.setDate(day.getDate()+1); load(); };
+  $('prev').onclick = () => { mergeAnchor = null; tsDay = ''; day.setDate(day.getDate()-1); load(); };
+  $('next').onclick = () => { mergeAnchor = null; tsDay = ''; day.setDate(day.getDate()+1); load(); };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
   load();
 })();
