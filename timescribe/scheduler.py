@@ -212,7 +212,23 @@ def _loop(notify: Optional[Callable[[str, str], None]]):
             time_mod.sleep(60)
 
 
+def _warm_tickets_once():
+    """Pre-load the agent's ticket list shortly after startup so the first
+    ticket search (desktop or phone) doesn't wait on 30 pages from Halo."""
+    import time as _t
+    _t.sleep(20)                       # let Halo connect first
+    try:
+        from timescribe.server import get_adapter
+        a = get_adapter()
+        if a is not None and a.is_authenticated():
+            n = len(a.list_agent_tickets(force=False))
+            print(f"[scheduler] startup ticket cache: {n} tickets")
+    except Exception as exc:
+        print(f"[scheduler] startup ticket warm failed: {exc!r}")
+
+
 def start(notify: Optional[Callable[[str, str], None]] = None) -> threading.Thread:
+    threading.Thread(target=_warm_tickets_once, daemon=True, name="ticket-warm").start()
     t = threading.Thread(target=_loop, args=(notify,), daemon=True,
                          name="pad-scheduler")
     t.start()

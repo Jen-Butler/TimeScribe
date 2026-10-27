@@ -210,6 +210,7 @@
         (s.halo_warning ? `<span class="chip err">posting blocked</span>` : '');
       $('btnPost').disabled = !approved || !s.halo_connected || !!s.halo_warning;
       render();
+      if (s.halo_connected) prefetchTickets(false).catch(() => {});
     } catch (e) { toast('Load failed: ' + e.message, false); }
   }
 
@@ -556,16 +557,37 @@
   });
 
   // ---- ticket picker (local filter over /api/tickets/mine) ----
+  // The agent's ticket list can take a while on a cold cache (Halo pages
+  // 100 at a time), so fetch it once as soon as the page opens and keep the
+  // picker honest about "still loading" vs "no matches".
+  let ticketsLoading = null, ticketsError = '';
+  function prefetchTickets(force) {
+    if (tickets && !force) return Promise.resolve(tickets);
+    if (ticketsLoading && !force) return ticketsLoading;
+    ticketsError = '';
+    ticketsLoading = api('/api/tickets/mine' + (force ? '?refresh=true' : ''))
+      .then(r => { tickets = r.tickets || []; return tickets; })
+      .catch(e => { ticketsError = e.message; tickets = tickets || null; throw e; })
+      .finally(() => { ticketsLoading = null; if ($('sheet').classList.contains('open')) filterList($('q').value); });
+    return ticketsLoading;
+  }
   async function openPicker() {
-    $('sheet').classList.add('open'); $('q').value = ''; $('list').innerHTML = '<div class="item">Loading your tickets…</div>';
-    try { if (!tickets) tickets = (await api('/api/tickets/mine')).tickets || []; filterList(''); $('q').focus(); }
-    catch (e) { $('list').innerHTML = `<div class="item">${esc(e.message)}</div>`; }
+    $('sheet').classList.add('open'); $('q').value = '';
+    filterList(''); $('q').focus();
+    prefetchTickets(false).catch(() => {});
   }
   function filterList(q) {
     q = q.trim().toLowerCase();
-    const rows = (tickets||[]).filter(t => !q || String(t.id).includes(q) || (t.client||'').toLowerCase().includes(q) || (t.subject||'').toLowerCase().includes(q)).slice(0, 60);
+    if (!tickets) {
+      $('list').innerHTML = ticketsLoading
+        ? '<div class="item">Loading your tickets from Halo… this can take up to a minute the first time.' + (/^\d+$/.test(q) ? `</div><div class="item" data-id="${q}"><b>#${q}</b> use this ticket number</div>` : '</div>')
+        : `<div class="item">Couldn't load tickets${ticketsError ? ': ' + esc(ticketsError) : ''}. <a href="#" id="ticketsRetry" style="color:var(--accent)">Retry</a></div>`;
+      const r = $('ticketsRetry'); if (r) r.onclick = ev => { ev.preventDefault(); prefetchTickets(true).catch(() => {}); filterList(q); };
+      return;
+    }
+    const rows = tickets.filter(t => !q || String(t.id).includes(q) || (t.client||'').toLowerCase().includes(q) || (t.subject||'').toLowerCase().includes(q)).slice(0, 60);
     $('list').innerHTML = rows.length ? rows.map(t => `<div class="item" data-id="${t.id}"><b>#${t.id}</b> ${esc(t.subject)}<small>${esc(t.client)}${t.status ? ' · ' + esc(t.status) : ''}</small></div>`).join('')
-      : (/^\d+$/.test(q) ? `<div class="item" data-id="${q}"><b>#${q}</b> use this ticket number</div>` : '<div class="item">No matches</div>');
+      : (/^\d+$/.test(q) ? `<div class="item" data-id="${q}"><b>#${q}</b> use this ticket number</div>` : `<div class="item">No matches in your ${tickets.length} tickets</div>`);
   }
   $('q').addEventListener('input', () => filterList($('q').value));
   $('list').addEventListener('click', e => { const it = e.target.closest('.item[data-id]'); if (it) setTicket(+it.dataset.id); });
