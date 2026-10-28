@@ -14,8 +14,8 @@ from timescribe.llm import generate
 APP_NAME = "timescribe"
 
 SYSTEM_PROMPT = """You are a personal activity logger for an MSP technician. You receive a merged, timestamped feed of:
-- Browser visits: `HH:MM [Profile | domain/path] Title`
-- Application focus events: `HH:MM [APP appname] Window title (Nm focused)`
+- Browser visits: `HH:MM [Profile | domain] {System} Title` -- the {System} tag (from the KNOWN SYSTEMS legend) says what product that site is; use it when naming where work happened
+- Application focus events: `HH:MM [APP appname] {System; AW:Category} Window title (Nm focused)` -- same optional tag
 - AFK markers: `----- AFK: N minutes -----`
 
 Produce concise, factual activity entries.
@@ -99,16 +99,19 @@ def build_signal_feed(since: datetime, until: datetime) -> str:
     # the technician sees when they review a block.
     min_focus = int(cfg.get("min_focus_seconds", 10) or 0)
 
+    from timescribe import systems
     lines = []  # (sort_time, text)
     for v in visits:
         t = v["time"]
-        lines.append((t, f"{t:%H:%M} [{v['profile']} | {v['domain']}] {v['title'][:120]}"))
+        tag = systems.tags_for(domain=v.get("domain"), title=v.get("title"), url=v.get("url"))
+        lines.append((t, f"{t:%H:%M} [{v['profile']} | {v['domain']}]{tag} {v['title'][:120]}"))
     for w in windows:
         if w["duration_s"] < min_focus:
             continue
         t = w["time"]
         mins = round(w["duration_s"] / 60, 1)
-        lines.append((t, f"{t:%H:%M} [APP {w['app']}] {w['title'][:120]} ({mins}m focused)"))
+        tag = systems.tags_for(app=w.get("app"), title=w.get("title"))
+        lines.append((t, f"{t:%H:%M} [APP {w['app']}]{tag} {w['title'][:120]} ({mins}m focused)"))
     for a in afk:
         lines.append((a["start"], f"----- AFK: {a['minutes']} minutes ({a['start']:%H:%M}-{a['end']:%H:%M}) -----"))
 
@@ -147,7 +150,9 @@ def run_digest(target: Optional[date_cls] = None,
 
     win_lo = since.strftime("%H:%M")
     win_hi = until.strftime("%H:%M")
+    from timescribe import systems
     user_prompt = (
+        systems.legend_text() + "\n\n"
         f"Activity feed for {target.isoformat()} ({win_lo}-{win_hi}):\n"
         f"---\n{feed}\n---\n\n"
         f"WINDOW: all time_ranges must be within {win_lo}-{win_hi}.\n"

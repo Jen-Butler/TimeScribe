@@ -189,6 +189,13 @@ class _Balance(BaseModel):
     amount: float
 
 
+@app.get("/api/systems")
+def systems_legend():
+    from timescribe import systems as _sys
+    return {"legend": [{"host": k, "label": v} for k, v in _sys.legend()],
+            "custom": appconfig.load().get("known_systems") or {}}
+
+
 @app.get("/api/ai/usage")
 def ai_usage(provider: str = None):
     return _aicost.summary(provider)
@@ -305,6 +312,8 @@ class ConfigUpdate(BaseModel):
     mobile_port: Optional[int] = None
     mobile_https: Optional[bool] = None
     ai_balance_warn: Optional[float] = None
+    known_systems: Optional[dict] = None
+    aw_categories_enabled: Optional[bool] = None
     combined_digest_drafts: Optional[bool] = None
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
     ticket_browser_profile: Optional[str] = None  # Edge profile-directory

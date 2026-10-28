@@ -57,6 +57,10 @@ DEFAULTS: Dict[str, Any] = {
     # AI spend: balance entered from the provider console (per provider) and
     # the estimated-remaining threshold that turns the pill red.
     "ai_balance": {},
+    # Extra domain -> system labels for the AI (host substring: label); the
+    # Halo URL and common MSP products are known automatically.
+    "known_systems": {},
+    "aw_categories_enabled": False,   # tag the feed with ActivityWatch categories
     "ai_balance_warn": 5.0,
     # Mobile access: second listener on the LAN for paired phones only.
     "mobile_enabled": False,

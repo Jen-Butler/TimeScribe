@@ -24,7 +24,7 @@ Rules:
 - DRAFTS MUST NOT OVERLAP IN TIME. Each minute belongs to at most one draft; when activity interleaves between tickets, split at the boundaries rather than emitting a long entry that swallows a shorter concurrent one.
 - The focused/active window outranks background browser tabs when deciding the ticket for a given stretch.
 - Round times to the nearest 5 minutes. Minimum entry: 10 minutes.
-- The note should read like a professional time entry: what was done, for what system/feature, outcome if visible. No "the user" phrasing -- write like a technician writes ("Configured integration runbook for asset sync; tested against dev environment").
+- The note should read like a professional time entry: what was done, for what system/feature, outcome if visible. Name systems by the KNOWN SYSTEMS legend -- a ticket seen on our HaloPSA is a HaloPSA ticket, not a Freshservice/other ticket, no matter what else the day was about. No "the user" phrasing -- write like a technician writes ("Configured integration runbook for asset sync; tested against dev environment").
 - confidence: 0.9+ = the ticket number itself appears in the activity (URL, window title, email subject); 0.75-0.9 = the activity unmistakably concerns the ticket's subject; anything less = ticket_id null. Never give a client-only link more than 0.5.
 - General/internal activity (email triage, team meetings, personal browsing, this app) -> unmatched with a short reason.
 - Never invent tickets. Only use ticket_ids from the provided list."""
@@ -248,7 +248,9 @@ def build_combined(adapter, target: Optional[date_cls] = None,
     covered_lines = [f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}"
                      for s, e in covered]
 
+    from timescribe import systems
     user_prompt = (
+        systems.legend_text() + "\n\n"
         f"Date: {target.isoformat()} (window {win_lo}-{win_hi})\n\n"
         f"RAW ACTIVITY FEED:\n---\n{feed}\n---\n\n"
         + (f"CALENDAR CONTEXT ({len(meeting_lines)} scheduled meetings) -- "
@@ -368,7 +370,9 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
     covered_lines = [f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}"
                      for s, e in covered]
 
+    from timescribe import systems
     user_prompt = (
+        systems.legend_text() + "\n\n"
         f"Date: {target.isoformat()}\n\n"
         f"ACTIVITY DIGEST ({len(digest_lines)} entries):\n"
         + "\n".join(digest_lines)
@@ -570,7 +574,9 @@ def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
     gap_lines = [f"{_fmt(s)}-{_fmt(e)}" for s, e in gaps]
     cov_lines = [f"{_fmt(s)}-{_fmt(e)}" for s, e in covered]
     ticket_lines = [f"[#{t.id}] [{t.client}] {t.subject[:100]}" for t in tickets]
+    from timescribe import systems
     user_prompt = (
+        systems.legend_text() + "\n\n"
         f"Date: {target.isoformat()}\n\n"
         f"GAPS TO FILL ({len(gap_lines)}):\n" + "\n".join(gap_lines)
         + f"\n\nACTIVITY:\n---\n{feed}\n---\n"
