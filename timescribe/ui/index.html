@@ -211,6 +211,7 @@
     <button class="subtab" data-ssec="screenshots" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Screenshots</button>
     <button class="subtab" data-ssec="mobile" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Mobile</button>
     <button class="subtab" data-ssec="system" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">System</button>
+    <button class="subtab" data-ssec="mcp" style="margin:0;padding:5px 14px;font-size:12px;background:var(--border);color:var(--text)">Claude / MCP</button>
   </div>
 
   <div class="ssec" data-ssec="general">
@@ -583,6 +584,16 @@
          color:var(--text)">Click refresh to load.</pre>
   </div>
   </div><!-- /ssec system -->
+
+  <div class="ssec" data-ssec="mcp" style="display:none">
+    <h3 style="margin-top:0">Claude / MCP integration</h3>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
+      Expose your activity data (read-only) to Claude Desktop, Cowork, or Claude Code.
+    </div>
+    <button id="btnCopyMcpJson" style="margin:0;padding:4px 12px;font-size:12px">Copy Claude Desktop config</button>
+    <button id="btnCopyMcpCmd" style="margin:0;padding:4px 12px;font-size:12px">Copy Claude Code command</button>
+    <div id="mcpMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+  </div><!-- /ssec mcp -->
   </div><!-- /settings pane (setup) -->
 
   <div class="pane active" data-pane="today">
@@ -705,17 +716,6 @@
   </div>
   </div><!-- /shots pane -->
 
-  <div class="pane" data-pane="settings">
-  <div class="card">
-    <h2>Claude / MCP integration</h2>
-    <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
-      Expose your activity data (read-only) to Claude Desktop, Cowork, or Claude Code.
-    </div>
-    <button id="btnCopyMcpJson" style="margin:0;padding:4px 12px;font-size:12px">Copy Claude Desktop config</button>
-    <button id="btnCopyMcpCmd" style="margin:0;padding:4px 12px;font-size:12px">Copy Claude Code command</button>
-    <div id="mcpMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
-  </div>
-  </div><!-- /settings pane (mcp) -->
 
 <div id="activityDetailOverlay" style="display:none;position:fixed;inset:0;z-index:200;
      background:rgba(0,0,0,.35);align-items:flex-start;justify-content:center">
@@ -1569,6 +1569,7 @@ function draftRow(d, i, nbr) {
       <span id="dsave${i}" style="font-size:11px;margin-left:auto"></span>
     </div>
     <div style="color:var(--muted);font-size:11px;margin:3px 0">${target}</div>
+    <div id="dov${i}" style="display:none;font-size:11px;margin:2px 0 4px;color:var(--warn,#b8860b)"></div>
     <textarea id="dn${i}" ${editable?'':'disabled'} rows="2" oninput="onDraftEdit(${i})"
       style="width:100%;margin:4px 0;padding:6px 8px;border-radius:6px;border:1px solid var(--border);
              background:var(--input-bg);color:var(--text);font-size:13px;font-family:inherit">${d.note}</textarea>
@@ -1859,6 +1860,7 @@ async function loadTimesheet() {
   el.innerHTML = '<span style="color:var(--muted)">Loading timesheet from Halo…</span>';
   try {
     const r = await api('/api/timesheet?day=' + selDay());
+    _tsRowsCache = r.rows || []; _tsRowsDay = selDay(); annotateOverlaps();
     const h = x => x != null ? (Math.round(x * 100) / 100) + 'h' : '?';
     el.innerHTML = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px;line-height:1.6">` +
       `<strong style="color:var(--text)">${h(r.actual_hours)}</strong> logged · ` +
@@ -1925,9 +1927,45 @@ function sortDraftPairs(pairs) {
   pairs.sort((a, b) => (_toMin(a[0][field]) - _toMin(b[0][field])) * dir);
 }
 
+// ---- overlap check (parity with the phone): each draft vs the Halo timesheet and the other drafts ----
+let _ovDrafts = [], _tsRowsDay = '', _tsRowsCache = [];
+const _h12 = m => `${((Math.floor(m/60)+11)%12)+1}:${String(m%60).padStart(2,'0')} ${m < 720 ? 'AM' : 'PM'}`;
+function overlapsFor(i, st, en) {
+  const a = _toMin(st), b = _toMin(en); if (a >= 99999 || b >= 99999 || b <= a) return [];
+  const out = [], add = (s2, e2, label) => { const lo = Math.max(a, s2), hi = Math.min(b, e2); if (hi > lo) out.push({lo, hi, label}); };
+  if (_tsRowsDay === selDay()) for (const r of _tsRowsCache) { const s2 = _toMin(r.start), e2 = _toMin(r.end); if (s2 < 99999 && e2 < 99999) add(s2, e2, `Halo ${r.ticket_id ? '#'+r.ticket_id : 'entry'} ${r.start}–${r.end}`); }
+  _ovDrafts.forEach((d, j) => {
+    if (j === i || !d || d.status === 'rejected') return;
+    if (d.status === 'posted' && _tsRowsDay === selDay() && _tsRowsCache.length) return;   // already counted via Halo
+    const s2 = _toMin(d.start_time), e2 = _toMin(d.end_time); if (s2 >= 99999 || e2 >= 99999) return;
+    add(s2, e2, `${d.status === 'posted' ? 'posted' : 'entry'} ${d.start_time}–${d.end_time}${d.ticket_id ? ' #'+d.ticket_id : ''}`);
+  });
+  return out;
+}
+function annotateOverlaps() {
+  let n = 0;
+  _ovDrafts.forEach((d, i) => {
+    const el = $('dov' + i); if (!el || !d || d.status === 'posted') return;
+    const st = $('ds' + i) ? $('ds' + i).value : d.start_time, en = $('de' + i) ? $('de' + i).value : d.end_time;
+    const ov = overlapsFor(i, st, en);
+    if (ov.length) { n++; el.style.display = ''; el.textContent = '⚠ overlaps ' + ov.slice(0, 3).map(o => `${_h12(o.lo)}–${_h12(o.hi)} with ${o.label}`).join('; ') + (ov.length > 3 ? ` (+${ov.length - 3} more)` : ''); }
+    else { el.style.display = 'none'; el.textContent = ''; }
+  });
+  const sub = $('subDrafts'); if (sub) sub.title = n ? `${n} entr${n===1?'y':'ies'} overlap the timesheet or each other` : '';
+  let chip = $('ovChipDesk');
+  if (n) { if (!chip && sub) { chip = document.createElement('span'); chip.id = 'ovChipDesk'; chip.style.cssText = 'margin-left:8px;font-size:11px;color:var(--bad)'; sub.insertAdjacentElement('afterend', chip); } if (chip) chip.textContent = `⚠ ${n} overlap${n===1?'':'s'}`; }
+  else if (chip) chip.remove();
+}
+async function refreshTimesheetRows() {
+  try { const r = await api('/api/timesheet?day=' + selDay()); _tsRowsCache = r.rows || []; _tsRowsDay = selDay(); annotateOverlaps(); }
+  catch (e) { _tsRowsCache = []; _tsRowsDay = selDay(); }
+}
+document.addEventListener('input', e => { if (e.target && /^d[se]\d+$/.test(e.target.id || '')) annotateOverlaps(); });
+
 async function loadDrafts() {
   try {
     const r = await api('/api/drafts?day=' + selDay());
+    _ovDrafts = r.drafts;
     const active = r.drafts.map((d, i) => [d, i]).filter(([d]) => d.status !== 'posted');
     const posted = r.drafts.map((d, i) => [d, i]).filter(([d]) => d.status === 'posted');
 
@@ -1952,6 +1990,8 @@ async function loadDrafts() {
     $('subDrafts').textContent = `Drafts (${active.length})`;
     $('subPosted').textContent = `Posted (${posted.length})`;
     updateBulkBar();
+    annotateOverlaps();
+    if (_tsRowsDay !== selDay()) refreshTimesheetRows();
   } catch (e) { /* ignore */ }
 }
 
