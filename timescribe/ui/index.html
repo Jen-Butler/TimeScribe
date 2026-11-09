@@ -343,6 +343,12 @@
       </select>
       <span style="font-size:11px;color:var(--muted)">Applies everywhere: the activity view, the digest, and ticket matching all skip windows focused for less than this.</span>
     </div>
+    <label style="display:block;margin:12px 0 4px">Time display</label>
+    <select id="timeFormat" style="width:auto;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
+      <option value="12">12-hour (1:59 PM)</option>
+      <option value="24">24-hour (13:59)</option>
+    </select>
+    <span style="font-size:11px;color:var(--muted);margin-left:8px">Used for overlap warnings, the Halo timesheet and the phone's time echo. Entry fields stay as they are.</span>
     <label style="display:block;margin:12px 0 4px">Known systems <span style="color:var(--muted)">(tells the AI what a website is, so it names tickets and tools correctly)</span></label>
     <div id="knownSystemsAuto" style="font-size:12px;color:var(--muted);margin-bottom:4px"></div>
     <textarea id="knownSystems" rows="3" placeholder="one per line:  domain = label&#10;support.contoso.com = Contoso's ServiceNow&#10;tickets.fabrikam.net = Fabrikam HaloPSA" style="width:100%;font-family:monospace;font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)"></textarea>
@@ -1336,6 +1342,7 @@ async function refreshStatus() {
     $('pillHalo').textContent = 'Halo: ' + (s.halo_connected ? 'connected' :
                                  (s.halo_configured ? 'configured, not connected' : 'not set up'));
     $('pillHalo').className = 'pill ' + (s.halo_connected ? 'ok' : 'err');
+    window._timeFormat = (s.config && s.config.time_format === '24') ? '24' : '12';
     // Attribution: with an application token Halo may post time as the
     // application ("Test") instead of the technician. Posting is blocked
     // server-side while this is true; make sure the user sees why.
@@ -1883,7 +1890,7 @@ async function loadTimesheet() {
         : `<span style="color:var(--muted);font-size:11px">no ticket</span>`;
       const escT = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
       div.innerHTML =
-        `<strong>${t.start}${t.end ? '–' + t.end : ''}</strong>` +
+        `<strong>${fmtT(t.start)}${t.end ? '–' + fmtT(t.end) : ''}</strong>` +
         `<span style="color:var(--accent)">${t.hours != null ? t.hours + 'h' : ''}</span>` +
         tkt +
         `<span style="color:var(--muted);font-size:11px">${t.customer}</span>` +
@@ -1929,7 +1936,10 @@ function sortDraftPairs(pairs) {
 
 // ---- overlap check (parity with the phone): each draft vs the Halo timesheet and the other drafts ----
 let _ovDrafts = [], _tsRowsDay = '', _tsRowsCache = [];
-const _h12 = m => `${((Math.floor(m/60)+11)%12)+1}:${String(m%60).padStart(2,'0')} ${m < 720 ? 'AM' : 'PM'}`;
+const _h12 = m => (window._timeFormat === '24')
+  ? `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`
+  : `${((Math.floor(m/60)+11)%12)+1}:${String(m%60).padStart(2,'0')} ${m < 720 ? 'AM' : 'PM'}`;
+const fmtT = hm => { const m = _toMin(hm); return m >= 99999 ? (hm || '') : _h12(m); };
 function overlapsFor(i, st, en) {
   const a = _toMin(st), b = _toMin(en); if (a >= 99999 || b >= 99999 || b <= a) return [];
   const out = [], add = (s2, e2, label) => { const lo = Math.max(a, s2), hi = Math.min(b, e2); if (hi > lo) out.push({lo, hi, label}); };
@@ -2402,6 +2412,7 @@ async function loadSchedule() {
     setMinFocusUI(c.min_focus_seconds);
     $('knownSystems').value = Object.entries(c.known_systems || {}).map(([k, v]) => `${k} = ${v}`).join('\n');
     $('awCategories').checked = !!c.aw_categories_enabled;
+    $('timeFormat').value = c.time_format === '24' ? '24' : '12'; window._timeFormat = $('timeFormat').value;
     api('/api/systems').then(r => {
       const auto = (r.legend || []).filter(x => !(r.custom || {})[x.host]).slice(0, 4).map(x => x.host + ' = ' + x.label.split(' -- ')[0].split(' (')[0]);
       $('knownSystemsAuto').textContent = 'Known automatically: ' + auto.join(' · ') + ' and other common MSP tools.';
@@ -2430,13 +2441,16 @@ $('btnSaveSchedule').onclick = async () => {
         combined_digest_drafts: $('combinedDrafts').checked,
         min_focus_seconds: parseInt($('minFocusSecs').value, 10) || 0,
         aw_categories_enabled: $('awCategories').checked,
+        time_format: $('timeFormat').value,
         known_systems: Object.fromEntries($('knownSystems').value.split('\n').map(l => l.split('=')).filter(p => p.length >= 2 && p[0].trim()).map(p => [p[0].trim().toLowerCase(), p.slice(1).join('=').trim()])),
         draft_sort_default: $('draftSortDefault').value,
         pomo_focus_min: parseInt($('pomoFocusMin').value, 10) || 25,
         pomo_break_min: parseInt($('pomoBreakMin').value, 10) || 5,
         pomo_long_min: parseInt($('pomoLongMin').value, 10) || 15,
       })});
+    window._timeFormat = $('timeFormat').value;
     if ($('draftSort')) { $('draftSort').value = $('draftSortDefault').value; loadDrafts(); }
+    if (typeof loadTimesheet === 'function') loadTimesheet();
     if (typeof pomoSyncDurations === 'function') pomoSyncDurations();
     $('schedMsg').textContent = 'Schedule saved.';
     $('schedMsg').className = 'ok-text';

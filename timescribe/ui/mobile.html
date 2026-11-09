@@ -281,7 +281,8 @@
     const ss = $('sortSel'); if (ss) ss.onchange = () => { sortMode = ss.value; render(); };
   }
 
-  const h12 = hm => { const m = hm2min(hm); if (m == null) return ''; const h = Math.floor(m/60), mm = String(m%60).padStart(2,'0'); return `${((h+11)%12)+1}:${mm} ${h < 12 ? 'AM' : 'PM'}`; };
+  const h12 = hm => { const m = hm2min(hm); if (m == null) return ''; const h = Math.floor(m/60), mm = String(m%60).padStart(2,'0');
+    return ((status.config||{}).time_format === '24') ? `${String(h).padStart(2,'0')}:${mm}` : `${((h+11)%12)+1}:${mm} ${h < 12 ? 'AM' : 'PM'}`; };
   function workWindow() { const c = status.config || {}; return [hm2min(c.work_start) ?? 8*60, hm2min(c.work_end) ?? 20*60]; }
   function oddHours(st, en) {
     const a = hm2min(st), b = hm2min(en); if (a == null || b == null) return '';
@@ -334,6 +335,7 @@
   function clockLine(st, en) {
     const a = h12(st), b = h12(en); if (!a && !b) return '';
     const odd = oddHours(st, en);
+    if ((status.config||{}).time_format === '24') return odd ? `<span class="odd">⚠ ${esc(odd)}</span>` : '';
     return `<span class="${odd ? 'odd' : ''}">${a || '…'} – ${b || '…'}${odd ? ' · ⚠ ' + esc(odd) : ''}</span>`;
   }
   function refreshClock(card) {
@@ -522,7 +524,7 @@
         ${t.unlogged_hours != null ? `<span class="chip ${t.unlogged_hours > 0 ? 'err' : ''}">${(t.unlogged_hours||0).toFixed(2)} h unlogged</span>` : ''}
       </div>`;
       m.innerHTML = tot + (rows.length ? rows.map((r, k) => `<div class="ts" data-k="${k}" style="flex-wrap:wrap;cursor:pointer">
-          <span class="tm">${esc(r.start)}–${esc(r.end)}</span>
+          <span class="tm">${h12(r.start)}–${h12(r.end)}</span>
           <span class="what">${r.ticket_id ? `<b style="color:var(--accent)">#${r.ticket_id}</b> ${esc(r.subject||'')}` : esc(r.subject||'(no ticket)')}<small>${esc(r.customer||'')}${r.charge_type ? ' · ' + esc(r.charge_type) : ''}${r.note ? ' · tap for note' : ''}</small></span>
           <span class="hrs">${(r.hours||0).toFixed(2)}</span>
           ${r.note ? `<div class="tsnote" style="display:none;flex-basis:100%;white-space:pre-wrap;font-size:14px;background:var(--input);border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px">${esc(r.note)}${r.ticket_id && r.action_number && t.halo_base_url ? `<div style="margin-top:8px"><a href="${esc(t.halo_base_url)}/tickets?id=${r.ticket_id}&actionid=${r.action_number}" target="_blank" rel="noopener" style="color:var(--accent)">Open this entry in Halo ↗</a></div>` : ''}</div>` : ''}

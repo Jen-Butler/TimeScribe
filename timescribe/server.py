@@ -314,6 +314,7 @@ class ConfigUpdate(BaseModel):
     ai_balance_warn: Optional[float] = None
     known_systems: Optional[dict] = None
     aw_categories_enabled: Optional[bool] = None
+    time_format: Optional[str] = None
     combined_digest_drafts: Optional[bool] = None
     browser_profiles: Optional[dict] = None     # "browserkey::folder" -> bool
     ticket_browser_profile: Optional[str] = None  # Edge profile-directory

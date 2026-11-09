@@ -61,6 +61,7 @@ DEFAULTS: Dict[str, Any] = {
     # Halo URL and common MSP products are known automatically.
     "known_systems": {},
     "aw_categories_enabled": False,   # tag the feed with ActivityWatch categories
+    "time_format": "12",              # "12" or "24": how times are displayed (warnings, timesheet, echoes)
     "ai_balance_warn": 5.0,
     # Mobile access: second listener on the LAN for paired phones only.
     "mobile_enabled": False,
