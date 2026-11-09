@@ -302,14 +302,14 @@
     const add = (s2, e2, label) => { const lo = Math.max(a, s2), hi = Math.min(b, e2); if (hi > lo) out.push({lo, hi, label}); };
     if (tsDay === iso(day)) for (const r of tsRows) {
       const s2 = hm2min(r.start), e2 = hm2min(r.end); if (s2 == null || e2 == null) continue;
-      add(s2, e2, `Halo ${r.ticket_id ? '#'+r.ticket_id : 'entry'} ${r.start}–${r.end}`);
+      add(s2, e2, `Halo ${r.ticket_id ? '#'+r.ticket_id : 'entry'} ${h12(r.start)}–${h12(r.end)}`);
     }
     drafts.forEach((d, j) => {
       if (j === i || d.status === 'rejected') return;
       const s2 = hm2min(d.start_time), e2 = hm2min(d.end_time); if (s2 == null || e2 == null) return;
       // a posted draft is already on the timesheet above; skip to avoid double-reporting
       if (d.status === 'posted' && tsDay === iso(day) && tsRows.length) return;
-      add(s2, e2, `${d.status === 'posted' ? 'posted' : 'entry'} ${d.start_time}–${d.end_time}${d.ticket_id ? ' #'+d.ticket_id : ''}`);
+      add(s2, e2, `${d.status === 'posted' ? 'posted' : 'entry'} ${h12(d.start_time)}–${h12(d.end_time)}${d.ticket_id ? ' #'+d.ticket_id : ''}`);
     });
     return out;
   }

@@ -1933,12 +1933,12 @@ const _h12 = m => `${((Math.floor(m/60)+11)%12)+1}:${String(m%60).padStart(2,'0'
 function overlapsFor(i, st, en) {
   const a = _toMin(st), b = _toMin(en); if (a >= 99999 || b >= 99999 || b <= a) return [];
   const out = [], add = (s2, e2, label) => { const lo = Math.max(a, s2), hi = Math.min(b, e2); if (hi > lo) out.push({lo, hi, label}); };
-  if (_tsRowsDay === selDay()) for (const r of _tsRowsCache) { const s2 = _toMin(r.start), e2 = _toMin(r.end); if (s2 < 99999 && e2 < 99999) add(s2, e2, `Halo ${r.ticket_id ? '#'+r.ticket_id : 'entry'} ${r.start}–${r.end}`); }
+  if (_tsRowsDay === selDay()) for (const r of _tsRowsCache) { const s2 = _toMin(r.start), e2 = _toMin(r.end); if (s2 < 99999 && e2 < 99999) add(s2, e2, `Halo ${r.ticket_id ? '#'+r.ticket_id : 'entry'} ${_h12(s2)}–${_h12(e2)}`); }
   _ovDrafts.forEach((d, j) => {
     if (j === i || !d || d.status === 'rejected') return;
     if (d.status === 'posted' && _tsRowsDay === selDay() && _tsRowsCache.length) return;   // already counted via Halo
     const s2 = _toMin(d.start_time), e2 = _toMin(d.end_time); if (s2 >= 99999 || e2 >= 99999) return;
-    add(s2, e2, `${d.status === 'posted' ? 'posted' : 'entry'} ${d.start_time}–${d.end_time}${d.ticket_id ? ' #'+d.ticket_id : ''}`);
+    add(s2, e2, `${d.status === 'posted' ? 'posted' : 'entry'} ${_h12(s2)}–${_h12(e2)}${d.ticket_id ? ' #'+d.ticket_id : ''}`);
   });
   return out;
 }
