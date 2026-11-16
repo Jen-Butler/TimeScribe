@@ -136,13 +136,15 @@ def restore_backup(d: date_cls) -> List[dict]:
 
 
 def set_status(d: date_cls, index: int, status: str,
-               posted_id: Optional[str] = None) -> dict:
+               posted_id: Optional[str] = None, extra: Optional[dict] = None) -> dict:
     items = load(d)
     if not (0 <= index < len(items)):
         raise IndexError(f"draft index {index} out of range")
     items[index]["status"] = status
     if posted_id:
         items[index]["posted_id"] = posted_id
+    if extra:
+        items[index].update(extra)
     save(d, items)
     return items[index]
 

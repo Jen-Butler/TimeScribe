@@ -1308,8 +1308,8 @@ def drafts_post(day: str = None):
         if item.get("status") != "approved":
             continue
         try:
-            posted_id = a.create_time_entry(_entry_from_item(item, target))
-            _drafts.set_status(target, i, "posted", posted_id=posted_id)
+            posted_id, extra = _post_entry(a, item, target)
+            _drafts.set_status(target, i, "posted", posted_id=posted_id, extra=extra)
             results.append({"index": i, "ok": True, "posted_id": posted_id})
         except Exception as exc:
             results.append({"index": i, "ok": False, "error": str(exc)})
@@ -1339,11 +1339,41 @@ def drafts_post_one(body: DraftIndex, day: str = None):
     if item.get("status") != "approved":
         raise HTTPException(400, "draft is not approved")
     try:
-        posted_id = a.create_time_entry(_entry_from_item(item, target))
-        _drafts.set_status(target, body.index, "posted", posted_id=posted_id)
+        posted_id, extra = _post_entry(a, item, target)
+        _drafts.set_status(target, body.index, "posted", posted_id=posted_id, extra=extra)
         return {"ok": True, "posted_id": posted_id}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+def _post_entry(a, item: dict, target) -> tuple:
+    """Create the entry in Halo. Returns (posted_id, extra-to-store).
+
+    A Quick Time post makes a TimesheetEvent (the id Halo returns) plus a
+    'Quick Time' ticket whose action holds the hours -- and the event doesn't
+    link to that action. So record exactly which ticket/action THIS post
+    created (the timesheet row that appears at its start time) to make a
+    later Unpost precise even when two Quick Time entries share a start."""
+    quick = not item.get("ticket_id")
+    st = item.get("start_time") or ""
+    before = set()
+    if quick:
+        try:
+            before = set(a._quick_time_rows(target, st))
+        except Exception:
+            before = None
+    posted_id = a.create_time_entry(_entry_from_item(item, target))
+    extra = {}
+    if quick and before is not None:
+        try:
+            new = [r for r in a._quick_time_rows(target, st) if r not in before]
+            if len(new) == 1:
+                extra["halo_qt"] = {"ticket_id": new[0][0], "action": new[0][1]}
+        except Exception:
+            pass
+    if not quick:
+        extra["halo_qt"] = None
+    return posted_id, extra
 
 
 def _entry_from_item(item: dict, target) -> "_TimeEntry":
@@ -1423,11 +1453,15 @@ def drafts_repost(body: DraftUpdate, day: str = None):
             prev_qt = rows[0] if len(rows) == 1 else None
         except Exception:
             prev_qt = None
+    prev_link = item.get("halo_qt")
+    if prev_link and not prev_ticket and prev_exists:
+        prev_qt = (prev_link["ticket_id"], prev_link["action"])
     try:
-        posted_id = a.create_time_entry(_entry_from_item(item, target))
+        posted_id, extra = _post_entry(a, item, target)
     except Exception as exc:
         # Pass Halo's actual complaint to the UI instead of a bare 500.
         raise HTTPException(502, str(exc))
+    item.update(extra)
     item["posted_id"] = posted_id
     item["status"] = "posted"
     _drafts.save(target, items)
@@ -1456,18 +1490,27 @@ def drafts_unpost(body: DraftIndex, day: str = None):
         raise HTTPException(400, "entry is not posted")
     pid, tid = item.get("posted_id"), item.get("ticket_id")
     st = item.get("start_time") or ""
-    already_gone = a.time_entry_exists(pid, tid, target, st) is False
+    link = item.get("halo_qt") if not tid else None     # exact Quick Time ticket/action from post time
+    def _exists():
+        if link:
+            return a.time_entry_exists(link["action"], link["ticket_id"])
+        return a.time_entry_exists(pid, tid, target, st)
+    already_gone = _exists() is False
     if not already_gone:
         try:
-            a.delete_time_entry(pid, tid, target, st)
+            if link:
+                a.remove_quick_time_action(int(link["ticket_id"]), int(link["action"]), pid)
+            else:
+                a.delete_time_entry(pid, tid, target, st)
         except Exception as exc:
             raise HTTPException(502, f"Halo would not delete it: {exc}")
-        if a.time_entry_exists(pid, tid, target, st) is True:
+        if _exists() is True:
             raise HTTPException(502, "Halo accepted the delete but the entry is still there -- "
                                      "remove it in Halo, then try again")
     item["status"] = "draft"
     item["unposted_id"] = pid
     item.pop("posted_id", None)
+    item.pop("halo_qt", None)
     _drafts.save(target, items)
     print(f"[drafts] unposted {target} #{body.index} (Halo id {pid}, ticket {tid or 'quick time'})")
     return {"ok": True, "already_gone": already_gone, "halo_id": pid}
