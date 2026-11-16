@@ -20,10 +20,11 @@ Rules:
 - TICKET MATCHING IS ABOUT THE PROBLEM, NOT THE CLIENT. Assign a ticket_id only when the activity shows work on the specific issue in that ticket's SUBJECT (same system, feature, error, request, or person). The client name appearing in the activity is NOT evidence by itself: a client has many tickets and most of a technician's work for a client is not on any open ticket. If the only link is the client name, set ticket_id null (quick time) and mention the client in the note -- the technician will assign it. Wrong tickets are far worse than unassigned ones.
 - Every draft states its evidence: "ticket_number" (the ticket id appears in the activity), "subject_topic" (the activity clearly concerns the ticket's subject), or "client_only" (nothing beyond the client name). client_only drafts MUST have ticket_id null.
 - match_reason: one sentence quoting the specific activity that ties to the ticket's subject. If you cannot write that sentence without just naming the client, there is no match.
-- Merge adjacent/related digest entries for the same ticket into ONE draft spanning the combined time.
+- KEEP DIFFERENT CONTEXTS AS SEPARATE DRAFTS. Each digest entry is one task for one client; produce one draft (or unmatched item) per entry. Merge two entries into one draft ONLY when they are adjacent in time AND the same task on the same ticket. Never combine entries about different clients, projects or topics, and never write a note that strings unrelated work together with semicolons -- the technician can merge with one tap but cannot cleanly split.
+- HOME profile exception (see BROWSER PROFILES): work seen in the technician's own-company profile that names a client belongs to that client; match it against that client's tickets, not internal ones.
 - DRAFTS MUST NOT OVERLAP IN TIME. Each minute belongs to at most one draft; when activity interleaves between tickets, split at the boundaries rather than emitting a long entry that swallows a shorter concurrent one.
 - The focused/active window outranks background browser tabs when deciding the ticket for a given stretch.
-- Round times to the nearest 5 minutes. Minimum entry: 10 minutes.
+- Round times to the nearest 5 minutes. Minimum entry: 5 minutes (short single-topic entries are fine).
 - The note should read like a professional time entry: what was done, for what system/feature, outcome if visible. Name systems by the KNOWN SYSTEMS legend -- a ticket seen on our HaloPSA is a HaloPSA ticket, not a Freshservice/other ticket, no matter what else the day was about. No "the user" phrasing -- write like a technician writes ("Configured integration runbook for asset sync; tested against dev environment").
 - confidence: 0.9+ = the ticket number itself appears in the activity (URL, window title, email subject); 0.75-0.9 = the activity unmistakably concerns the ticket's subject; anything less = ticket_id null. Never give a client-only link more than 0.5.
 - General/internal activity (email triage, team meetings, personal browsing, this app) -> unmatched with a short reason.
@@ -127,7 +128,8 @@ DRAFT rules:
   "client_only" (nothing beyond the client). client_only => ticket_id null.
   match_reason: one sentence quoting the feed activity that ties to the
   ticket's SUBJECT; if that sentence would only name the client, no match.
-- Merge adjacent/related activity for the same ticket into ONE draft.
+- ONE DRAFT = ONE TASK FOR ONE CLIENT. Start a new digest entry AND a new draft every time the context switches (different client, project/system, ticket, or kind of work), even when the switches are quick and each piece is short. Merge only activity that is continuous and the same task on the same ticket. Never string unrelated work together with semicolons in a summary or note; the technician can merge with one tap but cannot cleanly split.
+- HOME profile exception (see BROWSER PROFILES): activity in the technician's own-company profile that names a client -- especially one with its own profile -- is that client's work, not internal work.
 - DRAFTS MUST NOT OVERLAP IN TIME. Each minute of the day belongs to at most
   one draft. When activity for two tickets interleaves, split the time at the
   boundaries -- never emit a long entry that swallows a shorter concurrent
@@ -151,7 +153,7 @@ DRAFT rules:
   * A scheduled meeting with NO corroborating activity in the feed is not
     billable work -- omit it or leave it unmatched with reason "calendar
     only, no activity". Do not fabricate a draft from the calendar alone.
-- Round to nearest 5 min. Minimum entry 10 min. confidence: 0.9+ the ticket
+- Round to nearest 5 min. Minimum entry 5 min (short single-topic entries are fine). confidence: 0.9+ the ticket
   number itself appears in the feed; 0.75-0.9 the feed unmistakably concerns
   the ticket's subject; anything less, or calendar-only with no feed
   support -> ticket_id null. Never give a client-only link more than 0.5.
@@ -250,7 +252,7 @@ def build_combined(adapter, target: Optional[date_cls] = None,
 
     from timescribe import systems
     user_prompt = (
-        systems.legend_text() + "\n\n"
+        systems.legend_text() + "\n\n" + systems.profiles_text() + "\n\n"
         f"Date: {target.isoformat()} (window {win_lo}-{win_hi})\n\n"
         f"RAW ACTIVITY FEED:\n---\n{feed}\n---\n\n"
         + (f"CALENDAR CONTEXT ({len(meeting_lines)} scheduled meetings) -- "
@@ -372,7 +374,7 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
 
     from timescribe import systems
     user_prompt = (
-        systems.legend_text() + "\n\n"
+        systems.legend_text() + "\n\n" + systems.profiles_text() + "\n\n"
         f"Date: {target.isoformat()}\n\n"
         f"ACTIVITY DIGEST ({len(digest_lines)} entries):\n"
         + "\n".join(digest_lines)
@@ -576,7 +578,7 @@ def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
     ticket_lines = [f"[#{t.id}] [{t.client}] {t.subject[:100]}" for t in tickets]
     from timescribe import systems
     user_prompt = (
-        systems.legend_text() + "\n\n"
+        systems.legend_text() + "\n\n" + systems.profiles_text() + "\n\n"
         f"Date: {target.isoformat()}\n\n"
         f"GAPS TO FILL ({len(gap_lines)}):\n" + "\n".join(gap_lines)
         + f"\n\nACTIVITY:\n---\n{feed}\n---\n"

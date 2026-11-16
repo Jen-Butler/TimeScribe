@@ -23,7 +23,8 @@ Produce concise, factual activity entries.
 Rules:
 - 24-hour times. Entries chronological, non-overlapping.
 - Start summaries with a past-tense verb (Reviewed, Configured, Emailed, Built). Never "User ..." or "I ...".
-- The [Profile] tag on browser visits is authoritative for client attribution. Name the client when identifiable ("Configured integration runbooks for Contoso on HaloPSA").
+- The [Profile] tag on browser visits is authoritative for client attribution WHEN IT IS A CLIENT PROFILE. Name the client when identifiable ("Configured integration runbooks for Contoso on HaloPSA").
+- HOME profile exception (see BROWSER PROFILES in the prompt): the technician's own-company profile is where general work happens, so a visit there is NOT evidence the work was internal. If the page, URL, title or ticket seen in the HOME profile names a client -- especially one that has its own profile in the list -- attribute that activity to THAT CLIENT, exactly as if it had happened in the client's profile. Only call work internal/own-company when nothing identifies a client.
 - App events reveal non-browser work: Outlook = email, Teams = meetings/chat, Code/VS Code = development, terminal apps = ops work. Merge app + browser signals into one narrative when they're clearly the same task.
 - MINE WINDOW TITLES FOR SPECIFICS. Titles usually carry the real content:
   * Outlook: "RE: Server outage - Contoso - Message (HTML)" -> the email subject AND likely client. Say "Emailed about the Contoso server outage", not "worked in Outlook".
@@ -33,7 +34,11 @@ Rules:
   * If several titles for one app share a client name or topic, that client/topic IS the activity -- name it.
 - Only fall back to the generic app name when titles are truly uninformative (e.g. "Inbox - Outlook" with nothing else).
 - AFK markers are hard boundaries -- never span an entry across one, and never log the AFK period itself.
-- Group continuous same-task activity into single entries. Split when the task/client changes.
+- ONE ENTRY = ONE TASK FOR ONE CLIENT. Start a NEW entry every time the context switches: a different client, a different project/system, a different ticket, or a different kind of work (e.g. client configuration -> local development -> chat about something else -> community/Discord). Do this even when the switches are quick and the pieces are only a few minutes each -- many short, single-topic entries are correct; the technician merges related ones with one tap, but cannot cleanly pull apart a mixed one.
+- NEVER write a summary that strings unrelated things together with semicolons ("configured X; tested Y; chatted with Z; checked Discord"). If you are about to join clauses about different clients/projects/topics, those are separate entries. Semicolons are only for steps of the SAME task.
+- If the technician returns to an earlier task after doing something else, that is a new entry for the later stretch (entries stay chronological and non-overlapping) -- do not fold the detour into it.
+- Brief incidental glances (<1 min) inside a task are noise: drop them rather than creating an entry or mentioning them.
+- Only group activity that is continuous AND the same task.
 - NEVER invent activities or produce generic filler ("Worked on project X"). If signals are unclear: "Browsed unidentified pages on <domain>."
 - Skip noise: lock screens, login redirects, task switcher blips (<30s focus).
 - Every time_range MUST fall within the window stated in the prompt."""
@@ -152,7 +157,7 @@ def run_digest(target: Optional[date_cls] = None,
     win_hi = until.strftime("%H:%M")
     from timescribe import systems
     user_prompt = (
-        systems.legend_text() + "\n\n"
+        systems.legend_text() + "\n\n" + systems.profiles_text() + "\n\n"
         f"Activity feed for {target.isoformat()} ({win_lo}-{win_hi}):\n"
         f"---\n{feed}\n---\n\n"
         f"WINDOW: all time_ranges must be within {win_lo}-{win_hi}.\n"

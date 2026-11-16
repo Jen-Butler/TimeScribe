@@ -352,6 +352,8 @@
     <label style="display:block;margin:12px 0 4px">Known systems <span style="color:var(--muted)">(tells the AI what a website is, so it names tickets and tools correctly)</span></label>
     <div id="knownSystemsAuto" style="font-size:12px;color:var(--muted);margin-bottom:4px"></div>
     <textarea id="knownSystems" rows="3" placeholder="one per line:  domain = label&#10;support.contoso.com = Contoso's ServiceNow&#10;tickets.fabrikam.net = Fabrikam HaloPSA" style="width:100%;font-family:monospace;font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)"></textarea>
+    <label style="display:block;margin:10px 0 4px">Home browser profile(s) <span style="color:var(--muted)">(your own company's profile — work there that names a client is attributed to that client; blank = auto-detect from the Halo URL)</span></label>
+    <input id="homeProfiles" type="text" placeholder="e.g. Rising Tide" style="width:320px;padding:6px 8px;font-size:13px">
     <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;cursor:pointer">
       <input type="checkbox" id="awCategories" style="width:auto;margin:0">
       Also tag activity with my ActivityWatch categories <span style="color:var(--muted)">(ActivityWatch → Settings → Categorization; leave off until you've replaced AW's stock rules)</span>
@@ -2425,6 +2427,7 @@ async function loadSchedule() {
     setMinFocusUI(c.min_focus_seconds);
     $('knownSystems').value = Object.entries(c.known_systems || {}).map(([k, v]) => `${k} = ${v}`).join('\n');
     $('awCategories').checked = !!c.aw_categories_enabled;
+    $('homeProfiles').value = (c.home_profiles || []).join(', ');
     $('timeFormat').value = c.time_format === '24' ? '24' : '12'; window._timeFormat = $('timeFormat').value;
     api('/api/systems').then(r => {
       const auto = (r.legend || []).filter(x => !(r.custom || {})[x.host]).slice(0, 4).map(x => x.host + ' = ' + x.label.split(' -- ')[0].split(' (')[0]);
@@ -2454,6 +2457,7 @@ $('btnSaveSchedule').onclick = async () => {
         combined_digest_drafts: $('combinedDrafts').checked,
         min_focus_seconds: parseInt($('minFocusSecs').value, 10) || 0,
         aw_categories_enabled: $('awCategories').checked,
+        home_profiles: $('homeProfiles').value.split(',').map(x => x.trim()).filter(Boolean),
         time_format: $('timeFormat').value,
         known_systems: Object.fromEntries($('knownSystems').value.split('\n').map(l => l.split('=')).filter(p => p.length >= 2 && p[0].trim()).map(p => [p[0].trim().toLowerCase(), p.slice(1).join('=').trim()])),
         draft_sort_default: $('draftSortDefault').value,

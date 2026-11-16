@@ -60,6 +60,7 @@ DEFAULTS: Dict[str, Any] = {
     # Extra domain -> system labels for the AI (host substring: label); the
     # Halo URL and common MSP products are known automatically.
     "known_systems": {},
+    "home_profiles": [],              # own-company browser profiles; empty = auto-detect from the Halo host
     "aw_categories_enabled": False,   # tag the feed with ActivityWatch categories
     "time_format": "12",              # "12" or "24": how times are displayed (warnings, timesheet, echoes)
     "ai_balance_warn": 5.0,

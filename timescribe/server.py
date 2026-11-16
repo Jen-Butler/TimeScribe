@@ -313,6 +313,7 @@ class ConfigUpdate(BaseModel):
     mobile_https: Optional[bool] = None
     ai_balance_warn: Optional[float] = None
     known_systems: Optional[dict] = None
+    home_profiles: Optional[list] = None
     aw_categories_enabled: Optional[bool] = None
     time_format: Optional[str] = None
     combined_digest_drafts: Optional[bool] = None

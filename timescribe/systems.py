@@ -161,3 +161,55 @@ def tags_for(domain: str = "", app: str = "", title: str = "", url: str = "") ->
         if cat:
             parts.append("AW:" + cat)
     return " {" + "; ".join(parts) + "}" if parts else ""
+
+
+# ---------- browser profiles: clients vs the home profile ----------
+
+def _norm(x: str) -> str:
+    return _re.sub(r"[^a-z0-9]", "", (x or "").lower())
+
+
+def home_profiles(names: list) -> list:
+    """Profiles that are the technician's OWN company rather than a client.
+    Configured in Settings (home_profiles), else auto-detected: a profile
+    whose name appears in the Halo hostname ('Rising Tide' ->
+    service.risingtidegroup.net)."""
+    cfg = appconfig.load()
+    conf = [p.strip() for p in (cfg.get("home_profiles") or []) if p and p.strip()]
+    if conf:
+        low = {c.lower() for c in conf}
+        return [n for n in names if n.lower() in low] or conf
+    host = _norm(_halo_host())
+    return [n for n in names if len(_norm(n)) >= 4 and _norm(n) in host]
+
+
+def profiles_text() -> str:
+    """Prompt block: which browser profiles are clients and which is home."""
+    try:
+        from timescribe import history
+        cfg = appconfig.load()
+        enabled = cfg.get("browser_profiles", {})
+        excl = {x.strip().lower() for x in cfg.get("exclude_profiles", []) if x.strip()}
+        names = []
+        for key, _name, folder, friendly, _hp in history.discover_all_sources(cfg.get("edge_user_data_dir") or None):
+            default = not (folder.lower() in excl or friendly.lower() in excl)
+            if enabled.get(f"{key}::{folder}", default) and friendly not in names:
+                names.append(friendly)
+    except Exception as exc:
+        print(f"[systems] profile list unavailable: {exc}")
+        return ""
+    if not names:
+        return ""
+    home = home_profiles(names)
+    generic = _re.compile(r"^(profile \d+|person \d+|default.*|me|work|personal|guest)$", _re.I)
+    other = [n for n in names if n not in home and generic.match(n.strip())]
+    clients = [n for n in names if n not in home and n not in other]
+    out = "BROWSER PROFILES (the [Profile] tag on browser visits):\n"
+    if home:
+        out += ("- HOME (the technician's own company, used for general work): " + ", ".join(home) +
+                ". Activity here is NOT automatically internal -- if it names a client, it is that client's work.\n")
+    if clients:
+        out += "- CLIENT profiles (each is one client): " + ", ".join(clients[:60]) + "\n"
+    if other:
+        out += "- Unnamed/personal profiles (no client implied): " + ", ".join(other) + "\n"
+    return out.rstrip()
