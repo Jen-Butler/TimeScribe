@@ -31,6 +31,7 @@ Rules:
   * Teams: "Maria Lopez | Chat | Teams" or a meeting name -> who/what. Name the person or meeting.
   * Word/Excel/PDF: the document filename is the deliverable -> "Edited 'Contoso-SOW-v3.docx'".
   * VS Code/editors: "workflow.py - rewst-integration" -> file and project.
+  * AI assistants (Claude, ChatGPT) and browser tab groups: the conversation/tab title names the project -> "GrowGelt Development - Claude" is work for GrowGelt, even in the HOME profile.
   * If several titles for one app share a client name or topic, that client/topic IS the activity -- name it.
 - Only fall back to the generic app name when titles are truly uninformative (e.g. "Inbox - Outlook" with nothing else).
 - AFK markers are hard boundaries -- never span an entry across one, and never log the AFK period itself.

@@ -19,6 +19,7 @@ Your job: correlate activity to tickets and draft time entries.
 Rules:
 - TICKET MATCHING IS ABOUT THE PROBLEM, NOT THE CLIENT. Assign a ticket_id only when the activity shows work on the specific issue in that ticket's SUBJECT (same system, feature, error, request, or person). The client name appearing in the activity is NOT evidence by itself: a client has many tickets and most of a technician's work for a client is not on any open ticket. If the only link is the client name, set ticket_id null (quick time) and mention the client in the note -- the technician will assign it. Wrong tickets are far worse than unassigned ones.
 - Every draft states its evidence: "ticket_number" (the ticket id appears in the activity), "subject_topic" (the activity clearly concerns the ticket's subject), or "client_only" (nothing beyond the client name). client_only drafts MUST have ticket_id null.
+- EVIDENCE MUST BE INSIDE THE ENTRY'S OWN TIME RANGE. Do not carry a ticket over from the previous entry or assume work "continued": if the activity during this entry's start-end shows a different client or project (for example a window or AI-chat titled for another client), it is NOT this ticket.
 - match_reason: one sentence quoting the specific activity that ties to the ticket's subject. If you cannot write that sentence without just naming the client, there is no match.
 - KEEP DIFFERENT CONTEXTS AS SEPARATE DRAFTS. Each digest entry is one task for one client; produce one draft (or unmatched item) per entry. Merge two entries into one draft ONLY when they are adjacent in time AND the same task on the same ticket. Never combine entries about different clients, projects or topics, and never write a note that strings unrelated work together with semicolons -- the technician can merge with one tap but cannot cleanly split.
 - HOME profile exception (see BROWSER PROFILES): work seen in the technician's own-company profile that names a client belongs to that client; match it against that client's tickets, not internal ones.
@@ -76,6 +77,92 @@ def demote_weak_matches(items: List[dict], tmap: dict) -> int:
     return n
 
 
+_EV_STOP = {"with", "from", "this", "that", "issue", "issues", "ticket", "tickets", "request",
+            "project", "task", "user", "users", "need", "needs", "help", "please", "setup",
+            "update", "updates", "support", "working", "work", "error", "access", "account",
+            "email", "emails", "review", "meeting", "call", "general", "internal", "admin",
+            "into", "have", "been", "will", "about", "your", "their", "tech", "technology",
+            "technologies", "group", "services", "service", "solutions", "systems", "inc", "llc"}
+
+
+def _ev_tokens(t) -> set:
+    """Distinctive words that should show up in a window's activity if the
+    work really was on this ticket: client name, subject keywords, ticket #."""
+    import re as _re
+    toks = set()
+    for text in (getattr(t, "client", "") or "", getattr(t, "subject", "") or ""):
+        for w in _re.findall(r"[a-z0-9]{4,}", text.lower()):
+            if w not in _EV_STOP and not w.isdigit():
+                toks.add(w)
+    compact = _re.sub(r"[^a-z0-9]", "", (getattr(t, "client", "") or "").lower())
+    if len(compact) >= 5:
+        toks.add(compact)
+    toks.add(str(getattr(t, "id", "")))
+    return {x for x in toks if x}
+
+
+def demote_unsupported(items: List[dict], tmap: dict, target) -> int:
+    """Clear ticket_id on drafts whose OWN time window contains nothing that
+    points at the ticket. The model sometimes carries a ticket over from the
+    previous stretch of the day ('continued work on X') when the window
+    itself shows a different client entirely; evidence has to be inside the
+    entry's start-end range. Windows with no captured activity are left
+    alone (nothing to judge by). Returns the number demoted."""
+    import re as _re
+    from datetime import datetime as _dtm, time as _tm, timedelta as _tdl
+    from timescribe import activitywatch as _aw, history as _hist
+    ticketed = [it for it in items if it.get("ticket_id") and tmap.get(it.get("ticket_id"))]
+    if not ticketed:
+        return 0
+    day0 = _dtm.combine(target, _tm.min)
+    try:
+        cfg = appconfig.load()
+        wins = _aw.get_window_events(day0, _dtm.combine(target, _tm.max))
+        visits = _hist.read_enabled_history(
+            since=day0, until=_dtm.combine(target, _tm.max),
+            enabled_map=cfg.get("browser_profiles", {}),
+            exclude_profiles=cfg.get("exclude_profiles", []),
+            edge_override=cfg.get("edge_user_data_dir") or None)
+    except Exception as exc:
+        print(f"[inference] evidence check skipped: {exc}")
+        return 0
+
+    def _naive(dt):
+        return dt.astimezone().replace(tzinfo=None) if getattr(dt, "tzinfo", None) else dt
+
+    n = 0
+    for it in ticketed:
+        s_, e_ = drafts._hm_to_min(it.get("start_time")), drafts._hm_to_min(it.get("end_time"))
+        if s_ is None or e_ is None or e_ <= s_:
+            continue
+        ws, we = day0 + _tdl(minutes=s_), day0 + _tdl(minutes=e_)
+        parts = []
+        for w in wins:
+            a = _naive(w["time"]); b = a + _tdl(seconds=w.get("duration_s") or 0)
+            if b > ws and a < we:
+                parts.append(f"{w.get('app','')} {w.get('title','')}")
+        for v in visits:
+            if ws <= _naive(v["time"]) <= we:
+                parts.append(f"{v.get('profile','')} {v.get('domain','')} {v.get('title','')} {v.get('url','')}")
+        text = " ".join(parts).lower()
+        if not text.strip():
+            continue
+        compact = _re.sub(r"[^a-z0-9]", "", text)
+        t = tmap[it["ticket_id"]]
+        toks = _ev_tokens(t)
+        if any((tok in text) or (len(tok) >= 5 and tok in compact) for tok in toks):
+            continue
+        print(f"[inference] demoted #{it['ticket_id']} {it.get('start_time')}-{it.get('end_time')}: "
+              f"nothing in this window mentions {getattr(t, 'client', '')!r} / the ticket subject")
+        it["ticket_id"] = None
+        it["subject"] = f"(unassigned — activity in this window doesn't mention {getattr(t, 'client', '') or 'that ticket'})"
+        it["client"] = ""
+        it["confidence"] = 0.0
+        it["match_reason"] = "[demoted: no evidence for that ticket inside this entry's time window]"
+        n += 1
+    return n
+
+
 class Draft(BaseModel):
     ticket_id: Optional[int] = None
     start_time: str
@@ -126,6 +213,9 @@ DRAFT rules:
 - Every draft states its evidence: "ticket_number" (the id appears in the
   feed), "subject_topic" (the feed clearly concerns the ticket's subject), or
   "client_only" (nothing beyond the client). client_only => ticket_id null.
+  EVIDENCE MUST BE INSIDE THE DRAFT'S OWN TIME RANGE: never carry a ticket
+  over from the previous stretch or assume work "continued" -- if the feed
+  during this range shows a different client/project, it is not this ticket.
   match_reason: one sentence quoting the feed activity that ties to the
   ticket's SUBJECT; if that sentence would only name the client, no match.
 - ONE DRAFT = ONE TASK FOR ONE CLIENT. Start a new digest entry AND a new draft every time the context switches (different client, project/system, ticket, or kind of work), even when the switches are quick and each piece is short. Merge only activity that is continuous and the same task on the same ticket. Never string unrelated work together with semicolons in a summary or note; the technician can merge with one tap but cannot cleanly split.
@@ -290,6 +380,7 @@ def build_combined(adapter, target: Optional[date_cls] = None,
                           "subject": t.subject if t else "?",
                           "status": "draft"})
     demote_weak_matches(new_items, tmap)
+    demote_unsupported(new_items, tmap, target)
     for u in resp.unmatched:
         tr = (u.time_range or "").split("-")
         if len(tr) != 2:
@@ -408,6 +499,7 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
             "status": "draft",
         })
     demoted = demote_weak_matches(new_items, tmap)
+    demoted += demote_unsupported(new_items, tmap, target)
     # Unmatched activity becomes pickable drafts with no ticket
     # (would post as Quick Time unless the user assigns a ticket id).
     for u in resp.unmatched:
@@ -605,6 +697,7 @@ def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
             "status": "draft",
         })
     demote_weak_matches(new_items, tmap)
+    demote_unsupported(new_items, tmap, target)
     # Backstops: only keep entries inside gaps, drop ignored, drop anything
     # overlapping already-logged windows.
     def _in_gap(it):
@@ -639,11 +732,12 @@ def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
 # --- Single-entry summary: rewrite ONE draft's note from its own time window ---
 
 SUMMARIZE_SYSTEM_PROMPT = """You write the note for ONE time entry for an MSP technician.
-You are given the raw activity feed for exactly that entry's time window, and (if set) the ticket it is logged against.
+You are given the raw activity feed for exactly that entry's time window. You are not told which ticket it is logged against: describe what the activity actually shows, naming the client/project it points to.
 
 Write a single professional time-entry note:
 - 1-3 sentences, past tense, starting with a verb (Reviewed, Configured, Emailed, Built). Never "User ..." or "I ...".
-- Describe the work that dominated the window. If a ticket is given, focus on the activity related to that ticket/client and leave out unrelated glances.
+- Describe the work that dominated the window (by focused time) and leave out brief unrelated glances.
+- Window and AI-chat titles name the topic: a Claude/ChatGPT conversation or tab group titled "<Client> Development" means work for that client/project.
 - Be specific: use names from window titles (email subjects, people, files, hosts, pages). Name systems by the KNOWN SYSTEMS legend; a ticket seen on our HaloPSA is a HaloPSA ticket.
 - Be factual. Do not invent outcomes or work the feed doesn't show. If the feed is empty or shows nothing meaningful, say so plainly in a few words.
 - Plain text only: no bullet points, no markdown, no quotes around the note, no preamble."""
@@ -662,10 +756,9 @@ def summarize_entry(adapter, target: date_cls, item: dict) -> str:
     if en <= st:
         raise ValueError("End time must be after the start time")
     feed = digest_mod.build_signal_feed(st, en)
+    # Deliberately NOT told which ticket the entry is on: the note must say
+    # what the activity shows, so a wrong ticket can't colour the summary.
     ticket = ""
-    if item.get("ticket_id"):
-        ticket = (f"TICKET: #{item['ticket_id']} [{item.get('client') or ''}] "
-                  f"{item.get('subject') or ''}\n\n")
     user_prompt = (
         systems.legend_text() + "\n\n" + systems.profiles_text() + "\n\n"
         + ticket
