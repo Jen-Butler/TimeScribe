@@ -630,8 +630,10 @@
       .finally(() => { ticketsLoading = null; if ($('sheet').classList.contains('open')) filterList($('q').value); });
     return ticketsLoading;
   }
+  let recentTickets = [];
   async function openPicker() {
     $('sheet').classList.add('open'); $('q').value = '';
+    api('/api/tickets/recent').then(r => { recentTickets = r.tickets || []; if ($('sheet').classList.contains('open') && !$('q').value) filterList(''); }).catch(() => {});
     filterList(''); $('q').focus();
     prefetchTickets(false).catch(() => {});
   }
@@ -644,8 +646,14 @@
       const r = $('ticketsRetry'); if (r) r.onclick = ev => { ev.preventDefault(); prefetchTickets(true).catch(() => {}); filterList(q); };
       return;
     }
+    const item = t => `<div class="item" data-id="${t.id}"><b>#${t.id}</b> ${esc(t.subject)}<small>${esc(t.client)}${t.status ? ' · ' + esc(t.status) : ''}${t.role === 'additional' ? ' · <span style="color:var(--warn)">additional agent</span>' : ''}</small></div>`;
+    let sugg = '';
+    if (!q && recentTickets.length) {
+      const byId = new Map(tickets.map(t => [t.id, t]));
+      sugg = '<h4 style="margin:4px 6px">Suggestions — recently used</h4>' + recentTickets.map(r => item(Object.assign({}, r, byId.get(r.id) || {}))).join('') + '<h4 style="margin:12px 6px 4px">All your tickets</h4>';
+    }
     const rows = tickets.filter(t => !q || String(t.id).includes(q) || (t.client||'').toLowerCase().includes(q) || (t.subject||'').toLowerCase().includes(q)).slice(0, 60);
-    $('list').innerHTML = rows.length ? rows.map(t => `<div class="item" data-id="${t.id}"><b>#${t.id}</b> ${esc(t.subject)}<small>${esc(t.client)}${t.status ? ' · ' + esc(t.status) : ''}${t.role === 'additional' ? ' · <span style="color:var(--warn)">additional agent</span>' : ''}</small></div>`).join('')
+    $('list').innerHTML = rows.length ? sugg + rows.map(item).join('')
       : (/^\d+$/.test(q) ? `<div class="item" data-id="${q}"><b>#${q}</b> use this ticket number</div>` : `<div class="item">No matches in your ${tickets.length} tickets</div>`);
   }
   $('q').addEventListener('input', () => filterList($('q').value));

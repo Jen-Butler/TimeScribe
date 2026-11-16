@@ -2789,6 +2789,7 @@ async function loadTimeline() {
 // ---- ticket search popover (relink a draft to the right ticket) ----
 let _tsTargetIndex = null, _tsTimer = null, _myTickets = null;
 async function loadMyTickets(force) {
+  loadRecentTickets();                       // refresh suggestions every time the search opens
   if (_myTickets && !force) return _myTickets;
   const r = await api('/api/tickets/mine' + (force ? '?refresh=1' : ''));
   _myTickets = r.tickets || [];
@@ -2796,6 +2797,10 @@ async function loadMyTickets(force) {
 }
 function tsUpdateMeta() {
   $('tsMeta').textContent = _myTickets ? `${_myTickets.length} of your tickets` : '';
+}
+let _recentTickets = [];
+function loadRecentTickets() {
+  return api('/api/tickets/recent').then(r => { _recentTickets = r.tickets || []; if (typeof tsFilter === 'function' && $('tsResults') && _myTickets) tsFilter(); }).catch(() => {});
 }
 function tsRow(t) {
   const row = document.createElement('div');
@@ -2818,6 +2823,14 @@ function tsFilter() {
     return terms.every(term => hay.includes(term));
   });
   box.innerHTML = '';
+  // Suggestions: tickets you recently logged time to, shown before any typing.
+  if (!terms.length && _recentTickets.length) {
+    const hd = t => { const h = document.createElement('div'); h.style.cssText = 'padding:6px 8px 2px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em'; h.textContent = t; return h; };
+    box.appendChild(hd('Suggestions — recently used'));
+    const byId = new Map(_myTickets.map(t => [t.id, t]));
+    for (const r of _recentTickets) box.appendChild(tsRow(Object.assign({}, r, byId.get(r.id) || {})));
+    box.appendChild(hd('All your tickets'));
+  }
   if (!list.length) {
     // Numeric fallback: jump to any ticket id even if it isn't assigned to you.
     if (/^\d+$/.test(q)) {

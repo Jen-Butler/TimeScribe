@@ -668,6 +668,32 @@ def tickets_search(q: str, limit: int = 20):
         raise HTTPException(502, str(exc))
 
 
+@app.get("/api/tickets/recent")
+def tickets_recent(days: int = 21, limit: int = 8):
+    """Tickets most recently used on time entries (any status) over the last
+    few weeks, newest first -- the picker's 'Suggestions'. Derived from the
+    stored drafts, so it's the same on the desktop and the phone."""
+    from datetime import timedelta as _td
+    seen, out = set(), []
+    today = _date.today()
+    for n in range(max(1, min(days, 60))):
+        d = today - _td(days=n)
+        items = _drafts.load(d)
+        # later entries in a day were touched more recently
+        for it in sorted(items, key=lambda x: x.get("start_time") or "", reverse=True):
+            tid = it.get("ticket_id")
+            if not tid or tid in seen:
+                continue
+            seen.add(tid)
+            subj = it.get("subject") or ""
+            out.append({"id": tid, "client": it.get("client") or "",
+                        "subject": "" if subj.startswith("(") or subj == "?" else subj,
+                        "status": "", "last_used": d.isoformat(), "recent": True})
+            if len(out) >= limit:
+                return {"tickets": out}
+    return {"tickets": out}
+
+
 @app.get("/api/tickets/mine")
 def tickets_mine(refresh: bool = False):
     """All tickets assigned to the logged-in agent, for the relink picker
