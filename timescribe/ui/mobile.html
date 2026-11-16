@@ -171,6 +171,7 @@
 
   let day = new Date(); day.setHours(0,0,0,0);
   let view = 'entries', drafts = [], tickets = null, pickIndex = null, saveTimers = {}, status = {}, minFocus = 10, flashIndex = null, mergeAnchor = null;
+  let hidePosted = false;   // session-only, like the sort
   let sortMode = null;   // null = follow the desktop's default sort until changed here (kept for this session only)
   let tsRows = [], tsDay = '';   // Halo timesheet for the selected day (overlap checks)
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -237,9 +238,10 @@
     }[sortMode || 'smart'];
     // Entries with no times yet (fresh manual ones) always sit at the top, whatever the sort.
     const blank = i => !(drafts[i].start_time && drafts[i].end_time) && drafts[i].status !== 'posted';
-    const idx = drafts.map((d,i) => i).sort((a,b) => (blank(b) - blank(a)) || cmp(a,b));
+    const nPosted = drafts.filter(d => d.status === 'posted').length;
+    const idx = drafts.map((d,i) => i).filter(i => !(hidePosted && drafts[i].status === 'posted')).sort((a,b) => (blank(b) - blank(a)) || cmp(a,b));
     if (!drafts.length) { m.innerHTML = '<div class="empty">No time entries for this day yet.<br>Tap <b>Run digest</b> to build them from the activity log, or <b>+ Entry</b> to add one by hand.</div>'; return; }
-    const sortBar = `<div class="row" style="margin:0 0 8px;font-size:13px;color:var(--muted)"><span class="grow">${drafts.length} entr${drafts.length===1?'y':'ies'}</span>Sort
+    const sortBar = `<div class="row" style="margin:0 0 8px;font-size:13px;color:var(--muted)"><span>${idx.length} entr${idx.length===1?'y':'ies'}</span><label class="grow" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="hidePosted" ${hidePosted?'checked':''}> Hide posted${nPosted ? ' (' + nPosted + ')' : ''}</label>Sort
       <select id="sortSel" style="background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:14px">
         <option value="smart"${sortMode==='smart'?' selected':''}>Status</option>
         <option value="start_asc"${sortMode==='start_asc'?' selected':''}>Start ↑</option>
@@ -279,6 +281,7 @@
     const mc = $('mergeCancel'); if (mc) mc.onclick = () => cancelMerge();
     annotateOverlaps();
     const ss = $('sortSel'); if (ss) ss.onchange = () => { sortMode = ss.value; render(); };
+    const hp = $('hidePosted'); if (hp) hp.onchange = () => { hidePosted = hp.checked; render(); };
   }
 
   const h12 = hm => { const m = hm2min(hm); if (m == null) return ''; const h = Math.floor(m/60), mm = String(m%60).padStart(2,'0');
