@@ -72,6 +72,16 @@ _MOBILE_ALLOW_PREFIXES = (
 
 
 @app.middleware("http")
+async def _log_api_errors(request: Request, call_next):
+    """Every failed API call leaves a line in app.log (validation errors and
+    HTTPExceptions otherwise fail silently as far as the log is concerned)."""
+    resp = await call_next(request)
+    if resp.status_code >= 400 and request.url.path.startswith("/api/"):
+        print(f"[api] {request.method} {request.url.path} -> {resp.status_code}")
+    return resp
+
+
+@app.middleware("http")
 async def _mobile_gate(request: Request, call_next):
     host = request.client.host if request.client else ""
     if _mobile.is_loopback(host):
@@ -1061,7 +1071,7 @@ def drafts_add(day: str = None):
 
 
 @app.post("/api/drafts/summarize")
-def drafts_summarize(body: DraftIndex, day: str = None):
+def drafts_summarize(body: DraftAction, day: str = None):
     """Generate a fresh note for ONE draft from the activity in its own time
     window (one AI call). Returns the text; the UI drops it into the note
     field and saves it like any other edit."""
@@ -1074,6 +1084,7 @@ def drafts_summarize(body: DraftIndex, day: str = None):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
+        print(f"[summarize] {target} #{body.index} failed: {exc!r}")
         raise HTTPException(502, str(exc))
     if not note:
         raise HTTPException(502, "The AI returned an empty note")
