@@ -270,6 +270,7 @@
           ${posted ? '' : `<label class="nc" style="margin:0"><input type="checkbox" data-f="no_charge" ${d.no_charge?'checked':''}> No charge</label>`}
           <span class="grow"></span>
           ${mergeable ? '<button class="accent sm" data-act="mergehere">Merge here</button>' : (mergeAnchor === i ? '<button class="sm" data-act="mergecancel" style="background:var(--warn);color:#1c1300">Cancel merge</button>' : (posted || mergeAnchor != null ? '' : '<button class="ghost sm" data-act="split">Split</button><button class="ghost sm" data-act="merge">Merge</button>'))}
+          ${posted ? '<button class="ghost sm" data-act="unpost">Unpost</button>' : ''}
           <button class="ghost sm" data-act="activity">Activity</button>
         </div>
         ${posted ? '' : `<div class="actions">
@@ -585,6 +586,12 @@
         if (atM == null || !(atM > a && atM < b)) return toast(`Split time must be between ${d.start_time} and ${d.end_time}`, false);
         await api('/api/drafts/split?day='+iso(day), {method:'POST', body: JSON.stringify({index: i, at})});
         toast(`Split at ${h12(at)}`); flashIndex = i + 1; await load();
+      } else if (act === 'unpost') {
+        const d = drafts[i];
+        if (!confirm(`Remove ${h12(d.start_time)} – ${h12(d.end_time)} ${d.ticket_id ? '#'+d.ticket_id : 'Quick Time'} from Halo and put it back as a draft?\n\nYou can then edit it, add a ticket and post it again.`)) return;
+        const r = await api('/api/drafts/unpost?day='+iso(day), {method:'POST', body: JSON.stringify({index: i})});
+        toast(r.already_gone ? 'Already gone from Halo — back in drafts' : 'Removed from Halo — back in drafts', true, 5000);
+        flashIndex = i; tsDay = ''; await load();
       } else if (act === 'mergecancel') {
         cancelMerge();
       } else if (act === 'merge') {

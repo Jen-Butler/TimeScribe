@@ -1616,6 +1616,7 @@ function draftRow(d, i, nbr) {
     // Posted entries: editable, then reposted as a fresh Halo action with
     // whatever's currently in the fields.
     btns.appendChild(mk('Repost with edits', 'var(--accent)', () => repostDraft(i)));
+    btns.appendChild(mk('Unpost', '#7c2d12', () => unpostDraft(i)));
   }
   div.appendChild(btns);
 
@@ -1771,6 +1772,16 @@ async function unignore(idx) {
   } catch (e) { setMsg('Restore failed: ' + e.message, false); }
 }
 
+async function unpostDraft(i) {
+  if (!confirm('Remove this entry from Halo and put it back in Drafts? You can then edit it (add a ticket, fix the times) and post it again.')) return;
+  try {
+    const r = await api('/api/drafts/unpost?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({index: i})});
+    setMsg(r.already_gone ? 'It was already gone from Halo — moved back to Drafts.' : 'Removed from Halo and moved back to Drafts.', true);
+    loadDrafts(); loadSummary(); loadTimesheet();
+  } catch (e) { setMsg('Unpost failed: ' + e.message, false); }
+}
+
 async function repostDraft(i) {
   if (!confirm('Post this entry to Halo again with the current values? The earlier copy is not removed automatically.')) return;
   const tid = $('dt'+i).value.trim();
@@ -1794,11 +1805,11 @@ async function repostDraft(i) {
       // The old action is still in Halo (e.g. it was on the wrong ticket).
       // Offer to remove it so this becomes a clean move, not a duplicate.
       if (confirm(msg + '\n\nThe previous copy (Halo action #' + r.previous_id +
-          ') is still in Halo. Delete it now to avoid a duplicate?')) {
+          ') is still in Halo. Delete it now so this replaces it instead of duplicating it?')) {
         try {
           await api('/api/halo/delete_action', {method:'POST',
             headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({action_id: String(r.previous_id)})});
+            body: JSON.stringify({action_id: String(r.previous_id), ticket_id: r.previous_ticket_id || null})});
           setMsg('Re-posted and removed the previous Halo action #' + r.previous_id + '.', true);
         } catch (e2) {
           setMsg(msg + ' Could not delete the old copy: ' + e2.message +

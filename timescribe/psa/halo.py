@@ -487,38 +487,56 @@ class HaloPSAAdapter(PSAAdapter):
                   f"chargeamount={rec.get('actionchargeamount')}")
         return str((rec or {}).get("id") or "")
 
-    def delete_action(self, action_id) -> None:
-        """Delete an action in Halo (e.g. one posted to the wrong ticket).
-        Used to complete a 'move': repost to the right ticket, then remove
-        the original."""
-        if not action_id:
-            raise RuntimeError("no action id to delete")
+    def _api_delete(self, path: str, params: dict = None) -> None:
         token = self._ensure_access_token()
-        url = urljoin(self.api_base + "/", f"Actions/{action_id}")
-        print(f"[halo] DELETE Actions/{action_id}")
-        resp = httpx.delete(url, headers={"Authorization": f"Bearer {token}"},
-                            timeout=30)
+        url = urljoin(self.api_base + "/", path.lstrip("/"))
+        print(f"[halo] DELETE {path} params={params or {}}")
+        resp = httpx.delete(url, params=params or {},
+                            headers={"Authorization": f"Bearer {token}"}, timeout=30)
         if resp.status_code >= 400:
             detail = (resp.text or "")[:400]
-            raise RuntimeError(f"Halo delete action {action_id} returned "
-                               f"{resp.status_code}: {detail or 'no detail'}")
+            raise RuntimeError(f"Halo DELETE {path} returned {resp.status_code}: "
+                               f"{detail or 'no detail'}")
 
-    def action_exists(self, action_id) -> Optional[bool]:
-        """Does a previously-posted action still exist in Halo?
-        True = still there, False = gone/deleted, None = couldn't tell
-        (don't block a repost on an inconclusive check)."""
+    def delete_action(self, action_id, ticket_id=None) -> None:
+        """Delete an action in Halo. Action ids are per-ticket, so Halo
+        requires ticket_id alongside the id."""
         if not action_id:
+            raise RuntimeError("no action id to delete")
+        if not ticket_id:
+            raise RuntimeError("ticket id is required to delete a Halo action")
+        self._api_delete(f"Actions/{action_id}", {"ticket_id": int(ticket_id)})
+
+    def delete_time_entry(self, posted_id, ticket_id=None) -> None:
+        """Remove a time entry this app posted. Ticketed entries are Actions
+        (id + ticket_id); Quick Time entries are TimesheetEvents."""
+        if not posted_id:
+            raise RuntimeError("this entry has no Halo id recorded, so it can't be removed from here")
+        if ticket_id:
+            self.delete_action(posted_id, ticket_id)
+        else:
+            self._api_delete(f"TimesheetEvent/{posted_id}")
+
+    def time_entry_exists(self, posted_id, ticket_id=None) -> Optional[bool]:
+        """True = still in Halo, False = gone, None = couldn't tell."""
+        if not posted_id:
             return None
         try:
-            r = self._api_get(f"Actions/{action_id}")
+            if ticket_id:
+                r = self._api_get(f"Actions/{posted_id}", params={"ticket_id": int(ticket_id)})
+            else:
+                r = self._api_get(f"TimesheetEvent/{posted_id}")
         except Exception as exc:
-            if "404" in str(exc) or "not found" in str(exc).lower():
+            m = str(exc).lower()
+            if "404" in m or "not found" in m:
                 return False
             return None
         if isinstance(r, dict) and r.get("id"):
-            return not bool(r.get("deleted") or r.get("isdeleted")
-                            or r.get("actisdeleted"))
+            return not bool(r.get("deleted") or r.get("isdeleted") or r.get("actisdeleted"))
         return False
+
+    def action_exists(self, action_id, ticket_id=None) -> Optional[bool]:
+        return self.time_entry_exists(action_id, ticket_id)
 
     @staticmethod
     def _find_customfield(rec: dict, name: str):

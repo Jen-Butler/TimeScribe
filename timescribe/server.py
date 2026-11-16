@@ -1381,6 +1381,7 @@ def drafts_repost(body: DraftUpdate, day: str = None):
     item = items[body.index]
     if item.get("status") != "posted":
         raise HTTPException(400, "only posted entries can be re-posted")
+    prev_ticket = item.get("ticket_id")
     # Apply edits from the request (posted entries are otherwise locked).
     item["ticket_id"] = body.ticket_id
     if body.note is not None:
@@ -1408,7 +1409,7 @@ def drafts_repost(body: DraftUpdate, day: str = None):
     prev_id = item.get("posted_id")
     prev_exists = None
     try:
-        prev_exists = a.action_exists(prev_id)
+        prev_exists = a.time_entry_exists(prev_id, prev_ticket)
     except Exception:
         prev_exists = None
     try:
@@ -1420,11 +1421,47 @@ def drafts_repost(body: DraftUpdate, day: str = None):
     item["status"] = "posted"
     _drafts.save(target, items)
     return {"ok": True, "posted_id": posted_id,
-            "previous_id": prev_id, "previous_exists": prev_exists}
+            "previous_id": prev_id, "previous_ticket_id": prev_ticket,
+            "previous_exists": prev_exists}
+
+
+@app.post("/api/drafts/unpost")
+def drafts_unpost(body: DraftIndex, day: str = None):
+    """Undo a post: delete the entry from Halo and put it back in the list
+    as an editable draft (so it can be fixed, given a ticket, and posted
+    again). The Halo delete is verified before the local status changes;
+    if Halo refuses, nothing changes here."""
+    a = get_adapter()
+    if a is None or not a.is_authenticated():
+        raise HTTPException(401, "Halo not connected")
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    if not (0 <= body.index < len(items)):
+        raise HTTPException(404, "draft index out of range")
+    item = items[body.index]
+    if item.get("status") != "posted":
+        raise HTTPException(400, "entry is not posted")
+    pid, tid = item.get("posted_id"), item.get("ticket_id")
+    already_gone = a.time_entry_exists(pid, tid) is False
+    if not already_gone:
+        try:
+            a.delete_time_entry(pid, tid)
+        except Exception as exc:
+            raise HTTPException(502, f"Halo would not delete it: {exc}")
+        if a.time_entry_exists(pid, tid) is True:
+            raise HTTPException(502, "Halo accepted the delete but the entry is still there -- "
+                                     "remove it in Halo, then try again")
+    item["status"] = "draft"
+    item["unposted_id"] = pid
+    item.pop("posted_id", None)
+    _drafts.save(target, items)
+    print(f"[drafts] unposted {target} #{body.index} (Halo id {pid}, ticket {tid or 'quick time'})")
+    return {"ok": True, "already_gone": already_gone, "halo_id": pid}
 
 
 class ActionRef(BaseModel):
     action_id: str
+    ticket_id: Optional[int] = None
 
 
 @app.post("/api/halo/delete_action")
@@ -1435,7 +1472,7 @@ def halo_delete_action(body: ActionRef):
     if a is None or not a.is_authenticated():
         raise HTTPException(401, "Halo not connected")
     try:
-        a.delete_action(body.action_id)
+        a.delete_time_entry(body.action_id, body.ticket_id)
     except Exception as exc:
         raise HTTPException(502, str(exc))
     return {"ok": True}
