@@ -507,33 +507,85 @@ class HaloPSAAdapter(PSAAdapter):
             raise RuntimeError("ticket id is required to delete a Halo action")
         self._api_delete(f"Actions/{action_id}", {"ticket_id": int(ticket_id)})
 
-    def delete_time_entry(self, posted_id, ticket_id=None) -> None:
-        """Remove a time entry this app posted. Ticketed entries are Actions
-        (id + ticket_id); Quick Time entries are TimesheetEvents."""
-        if not posted_id:
-            raise RuntimeError("this entry has no Halo id recorded, so it can't be removed from here")
-        if ticket_id:
-            self.delete_action(posted_id, ticket_id)
-        else:
-            self._api_delete(f"TimesheetEvent/{posted_id}")
+    def _quick_time_rows(self, day, start_hm: str) -> list:
+        """Timesheet rows for a Quick Time entry starting at start_hm on
+        `day`: [(quick-time ticket id, action number)]. A Quick Time post
+        creates a TimesheetEvent AND a 'Quick Time - ...' ticket whose action
+        carries the hours -- that action is what shows on the timesheet."""
+        from datetime import datetime as _d, time as _t
+        ts = self.get_day_timesheet(_d.combine(day, _t.min), _d.combine(day, _t.max))
+        out = []
+        for r in ts.get("rows", []):
+            if (r.get("start") == start_hm and r.get("ticket_id") and r.get("action_number")
+                    and (r.get("subject") or "").lower().startswith("quick time")):
+                out.append((int(r["ticket_id"]), int(r["action_number"])))
+        return out
 
-    def time_entry_exists(self, posted_id, ticket_id=None) -> Optional[bool]:
-        """True = still in Halo, False = gone, None = couldn't tell."""
-        if not posted_id:
-            return None
+    def delete_time_entry(self, posted_id, ticket_id=None, day=None, start_hm: str = "") -> None:
+        """Remove a time entry this app posted.
+
+        Ticketed entries are Actions (id + ticket_id). Quick Time is three
+        records: the TimesheetEvent, a 'Quick Time - ...' ticket, and the
+        action on it that holds the hours. Deleting only the event leaves
+        the time on the timesheet (verified), so remove the action and the
+        now-empty Quick Time ticket as well."""
+        if ticket_id:
+            if not posted_id:
+                raise RuntimeError("this entry has no Halo id recorded, so it can't be removed from here")
+            self.delete_action(posted_id, ticket_id)
+            return
+        rows = self._quick_time_rows(day, start_hm) if (day and start_hm) else []
+        if len(rows) > 1:
+            raise RuntimeError("more than one Quick Time entry starts at that time; "
+                               "remove the right one in Halo to be safe")
+        if not rows:
+            raise RuntimeError("couldn't find this Quick Time entry on the Halo timesheet")
+        qt_ticket, action_no = rows[0]
+        self.remove_quick_time_action(qt_ticket, action_no, posted_id)
+
+    def remove_quick_time_action(self, qt_ticket: int, action_no: int, event_id=None) -> None:
+        """Delete the hours-bearing action on a Quick Time ticket, then the
+        ticket itself -- only if it really is a 'Quick Time' ticket and
+        nothing else has time logged on it."""
+        t = self._api_get(f"Tickets/{qt_ticket}")
+        if not (t.get("summary") or "").lower().startswith("quick time"):
+            raise RuntimeError(f"ticket {qt_ticket} is not a Quick Time ticket; not touching it")
+        if event_id:
+            try:
+                self._api_delete(f"TimesheetEvent/{event_id}")
+            except Exception as exc:
+                if "404" not in str(exc):
+                    print(f"[halo] TimesheetEvent/{event_id} delete: {exc}")
+        self.delete_action(action_no, qt_ticket)
+        try:
+            acts = self._api_get("Actions", params={"ticket_id": qt_ticket, "count": 50})
+            acts = acts.get("actions", acts) if isinstance(acts, dict) else acts
+            if not any((x.get("timetaken") or 0) > 0 for x in acts or []):
+                self._api_delete(f"Tickets/{qt_ticket}")
+        except Exception as exc:
+            print(f"[halo] quick-time ticket {qt_ticket} cleanup skipped: {exc}")
+
+    def time_entry_exists(self, posted_id, ticket_id=None, day=None, start_hm: str = "") -> Optional[bool]:
+        """True = still on Halo, False = gone, None = couldn't tell."""
         try:
             if ticket_id:
+                if not posted_id:
+                    return None
                 r = self._api_get(f"Actions/{posted_id}", params={"ticket_id": int(ticket_id)})
-            else:
-                r = self._api_get(f"TimesheetEvent/{posted_id}")
+                if isinstance(r, dict) and r.get("id"):
+                    return not bool(r.get("deleted") or r.get("isdeleted") or r.get("actisdeleted"))
+                return False
+            if day and start_hm:                     # Quick Time: the timesheet is the truth
+                return bool(self._quick_time_rows(day, start_hm))
+            if not posted_id:
+                return None
+            r = self._api_get(f"TimesheetEvent/{posted_id}")
+            return bool(isinstance(r, dict) and r.get("id"))
         except Exception as exc:
             m = str(exc).lower()
             if "404" in m or "not found" in m:
                 return False
             return None
-        if isinstance(r, dict) and r.get("id"):
-            return not bool(r.get("deleted") or r.get("isdeleted") or r.get("actisdeleted"))
-        return False
 
     def action_exists(self, action_id, ticket_id=None) -> Optional[bool]:
         return self.time_entry_exists(action_id, ticket_id)

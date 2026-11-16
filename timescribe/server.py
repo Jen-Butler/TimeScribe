@@ -1382,6 +1382,7 @@ def drafts_repost(body: DraftUpdate, day: str = None):
     if item.get("status") != "posted":
         raise HTTPException(400, "only posted entries can be re-posted")
     prev_ticket = item.get("ticket_id")
+    prev_start = item.get("start_time") or ""
     # Apply edits from the request (posted entries are otherwise locked).
     item["ticket_id"] = body.ticket_id
     if body.note is not None:
@@ -1409,9 +1410,19 @@ def drafts_repost(body: DraftUpdate, day: str = None):
     prev_id = item.get("posted_id")
     prev_exists = None
     try:
-        prev_exists = a.time_entry_exists(prev_id, prev_ticket)
+        prev_exists = a.time_entry_exists(prev_id, prev_ticket, target, prev_start)
     except Exception:
         prev_exists = None
+    # A previous QUICK TIME copy lives on its own 'Quick Time' ticket. Pin
+    # down which one NOW, before the repost can create a second Quick Time
+    # row at the same start time.
+    prev_qt = None
+    if not prev_ticket and prev_exists:
+        try:
+            rows = a._quick_time_rows(target, prev_start)
+            prev_qt = rows[0] if len(rows) == 1 else None
+        except Exception:
+            prev_qt = None
     try:
         posted_id = a.create_time_entry(_entry_from_item(item, target))
     except Exception as exc:
@@ -1422,6 +1433,8 @@ def drafts_repost(body: DraftUpdate, day: str = None):
     _drafts.save(target, items)
     return {"ok": True, "posted_id": posted_id,
             "previous_id": prev_id, "previous_ticket_id": prev_ticket,
+            "previous_quick": ({"ticket_id": prev_qt[0], "action": prev_qt[1], "event_id": prev_id}
+                               if prev_qt else None),
             "previous_exists": prev_exists}
 
 
@@ -1442,13 +1455,14 @@ def drafts_unpost(body: DraftIndex, day: str = None):
     if item.get("status") != "posted":
         raise HTTPException(400, "entry is not posted")
     pid, tid = item.get("posted_id"), item.get("ticket_id")
-    already_gone = a.time_entry_exists(pid, tid) is False
+    st = item.get("start_time") or ""
+    already_gone = a.time_entry_exists(pid, tid, target, st) is False
     if not already_gone:
         try:
-            a.delete_time_entry(pid, tid)
+            a.delete_time_entry(pid, tid, target, st)
         except Exception as exc:
             raise HTTPException(502, f"Halo would not delete it: {exc}")
-        if a.time_entry_exists(pid, tid) is True:
+        if a.time_entry_exists(pid, tid, target, st) is True:
             raise HTTPException(502, "Halo accepted the delete but the entry is still there -- "
                                      "remove it in Halo, then try again")
     item["status"] = "draft"
@@ -1462,6 +1476,7 @@ def drafts_unpost(body: DraftIndex, day: str = None):
 class ActionRef(BaseModel):
     action_id: str
     ticket_id: Optional[int] = None
+    quick_event_id: Optional[str] = None   # set => action_id/ticket_id are a Quick Time ticket's
 
 
 @app.post("/api/halo/delete_action")
@@ -1472,7 +1487,11 @@ def halo_delete_action(body: ActionRef):
     if a is None or not a.is_authenticated():
         raise HTTPException(401, "Halo not connected")
     try:
-        a.delete_time_entry(body.action_id, body.ticket_id)
+        if body.quick_event_id is not None:
+            a.remove_quick_time_action(int(body.ticket_id), int(body.action_id),
+                                       body.quick_event_id or None)
+        else:
+            a.delete_time_entry(body.action_id, body.ticket_id)
     except Exception as exc:
         raise HTTPException(502, str(exc))
     return {"ok": True}
