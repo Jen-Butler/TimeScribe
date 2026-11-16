@@ -1609,6 +1609,9 @@ function draftRow(d, i, nbr) {
     applyDraftToggle(toggle, i, d.status);
     btns.appendChild(toggle);
     btns.appendChild(mk('Split', '#a78bfa', () => splitDraft(i)));
+    const sb = mk('Summarize', '#0f766e', () => summarizeDraft(i, sb));
+    sb.title = 'Rewrite this entry\'s note with AI from the activity in its time window (replaces the current note)';
+    btns.appendChild(sb);
     if (nbr.up != null)
       btns.appendChild(mk('⬆ Merge', '#0e7490', () => mergeDraft(i, nbr.up)));
     if (nbr.down != null)
@@ -1772,6 +1775,22 @@ async function unignore(idx) {
     setMsg('Restored — it can appear again on the next digest.', true);
     loadIgnored();
   } catch (e) { setMsg('Restore failed: ' + e.message, false); }
+}
+
+async function summarizeDraft(i, btn) {
+  const ta = $('dn' + i); if (!ta) return;
+  const prev = ta.value, label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Summarizing…'; }
+  try {
+    // make sure edited times are saved first: the summary covers the stored window
+    if (typeof autosaveDraft === 'function' && _saveTimers[i]) { clearTimeout(_saveTimers[i]); await autosaveDraft(i); }
+    const r = await api('/api/drafts/summarize?day=' + selDay(), {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({index: i})});
+    ta.value = r.note; window._lastNote = {i, prev};
+    onDraftEdit(i);
+    setMsg('Note rewritten from the activity in this entry\'s window.', true);
+  } catch (e) { setMsg('Summarize failed: ' + e.message, false); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
 }
 
 async function unpostDraft(i) {

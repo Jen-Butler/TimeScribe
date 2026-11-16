@@ -1060,6 +1060,26 @@ def drafts_add(day: str = None):
     return {"ok": True, "index": len(items) - 1}
 
 
+@app.post("/api/drafts/summarize")
+def drafts_summarize(body: DraftIndex, day: str = None):
+    """Generate a fresh note for ONE draft from the activity in its own time
+    window (one AI call). Returns the text; the UI drops it into the note
+    field and saves it like any other edit."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    if not (0 <= body.index < len(items)):
+        raise HTTPException(404, "draft index out of range")
+    try:
+        note = _inference.summarize_entry(get_adapter(), target, items[body.index])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, str(exc))
+    if not note:
+        raise HTTPException(502, "The AI returned an empty note")
+    return {"ok": True, "note": note}
+
+
 @app.post("/api/drafts/restore")
 def drafts_restore(day: str = None):
     """Bring back a day's drafts from the sidelined (.corrupt) or backup

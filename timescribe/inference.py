@@ -633,3 +633,46 @@ def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
     drafts.save(target, existing + added)
     print(f"[gapfill] {len(gaps)} gaps -> proposed {len(resp.drafts)}, added {len(added)}")
     return {"drafts": added, "gaps": gap_lines, "added": len(added)}
+
+
+
+# --- Single-entry summary: rewrite ONE draft's note from its own time window ---
+
+SUMMARIZE_SYSTEM_PROMPT = """You write the note for ONE time entry for an MSP technician.
+You are given the raw activity feed for exactly that entry's time window, and (if set) the ticket it is logged against.
+
+Write a single professional time-entry note:
+- 1-3 sentences, past tense, starting with a verb (Reviewed, Configured, Emailed, Built). Never "User ..." or "I ...".
+- Describe the work that dominated the window. If a ticket is given, focus on the activity related to that ticket/client and leave out unrelated glances.
+- Be specific: use names from window titles (email subjects, people, files, hosts, pages). Name systems by the KNOWN SYSTEMS legend; a ticket seen on our HaloPSA is a HaloPSA ticket.
+- Be factual. Do not invent outcomes or work the feed doesn't show. If the feed is empty or shows nothing meaningful, say so plainly in a few words.
+- Plain text only: no bullet points, no markdown, no quotes around the note, no preamble."""
+
+
+def summarize_entry(adapter, target: date_cls, item: dict) -> str:
+    """One LLM call: a fresh note for a single draft, from the activity in
+    its own start-end window."""
+    from datetime import datetime as _dtm
+    from timescribe import systems
+    try:
+        st = _dtm.combine(target, _dtm.strptime(item["start_time"], "%H:%M").time())
+        en = _dtm.combine(target, _dtm.strptime(item["end_time"], "%H:%M").time())
+    except (KeyError, ValueError):
+        raise ValueError("Set a start and end time first")
+    if en <= st:
+        raise ValueError("End time must be after the start time")
+    feed = digest_mod.build_signal_feed(st, en)
+    ticket = ""
+    if item.get("ticket_id"):
+        ticket = (f"TICKET: #{item['ticket_id']} [{item.get('client') or ''}] "
+                  f"{item.get('subject') or ''}\n\n")
+    user_prompt = (
+        systems.legend_text() + "\n\n" + systems.profiles_text() + "\n\n"
+        + ticket
+        + f"ENTRY WINDOW: {target.isoformat()} {item['start_time']}-{item['end_time']}\n"
+        + f"ACTIVITY FEED:\n---\n{feed or '(no activity captured in this window)'}\n---\n\n"
+        "Write the note."
+    )
+    text = generate(system_prompt=SUMMARIZE_SYSTEM_PROMPT, user_prompt=user_prompt,
+                    model=_planner_model(appconfig.load()), max_tokens=400)
+    return (text or "").strip().strip('"').strip()
