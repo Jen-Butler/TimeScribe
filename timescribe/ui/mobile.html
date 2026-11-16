@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#0f172a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -639,6 +639,18 @@
       : (/^\d+$/.test(q) ? `<div class="item" data-id="${q}"><b>#${q}</b> use this ticket number</div>` : `<div class="item">No matches in your ${tickets.length} tickets</div>`);
   }
   $('q').addEventListener('input', () => filterList($('q').value));
+  // Keep the picker inside the part of the screen the keyboard doesn't
+  // cover: size the sheet to the visual viewport so the results list ends
+  // at the top edge of the keyboard instead of running underneath it.
+  function fitSheets() {
+    const vv = window.visualViewport; if (!vv) return;
+    for (const id of ['sheet', 'actSheet', 'postSheet']) {
+      const el = $(id);
+      el.style.top = vv.offsetTop + 'px'; el.style.bottom = 'auto'; el.style.height = vv.height + 'px';
+      const p = el.querySelector('.panel'); if (p) p.style.maxHeight = Math.round(vv.height * (vv.height < window.innerHeight * 0.75 ? 1 : 0.88)) + 'px';
+    }
+  }
+  if (window.visualViewport) { visualViewport.addEventListener('resize', fitSheets); visualViewport.addEventListener('scroll', fitSheets); fitSheets(); }
   $('list').addEventListener('click', e => { const it = e.target.closest('.item[data-id]'); if (it) setTicket(+it.dataset.id); });
   $('clearTicket').onclick = () => setTicket(null);
   $('sheetClose').onclick = () => $('sheet').classList.remove('open');
