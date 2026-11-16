@@ -18,7 +18,8 @@ Your job: correlate activity to tickets and draft time entries.
 
 Rules:
 - TICKET MATCHING IS ABOUT THE PROBLEM, NOT THE CLIENT. Assign a ticket_id only when the activity shows work on the specific issue in that ticket's SUBJECT (same system, feature, error, request, or person). The client name appearing in the activity is NOT evidence by itself: a client has many tickets and most of a technician's work for a client is not on any open ticket. If the only link is the client name, set ticket_id null (quick time) and mention the client in the note -- the technician will assign it. Wrong tickets are far worse than unassigned ones.
-- Every draft states its evidence: "ticket_number" (the ticket id appears in the activity), "subject_topic" (the activity clearly concerns the ticket's subject), or "client_only" (nothing beyond the client name). client_only drafts MUST have ticket_id null.
+- Every draft states its evidence: "ticket_number" (the ticket id appears in the activity), "subject_topic" (the activity clearly concerns the ticket's subject), or "client_only" (nothing beyond the client name). Anything client_only has NO ticket: put it in "unmatched", not in "drafts".
+- EVERY STRETCH OF TIME APPEARS EXACTLY ONCE in your whole answer: either in "drafts" (it has a ticket_id) or in "unmatched" (it does not) -- never both, never twice, and never as both one long item and the shorter pieces that make it up. "drafts" is only for entries with a ticket_id.
 - EVIDENCE MUST BE INSIDE THE ENTRY'S OWN TIME RANGE. Do not carry a ticket over from the previous entry or assume work "continued": if the activity during this entry's start-end shows a different client or project (for example a window or AI-chat titled for another client), it is NOT this ticket.
 - match_reason: one sentence quoting the specific activity that ties to the ticket's subject. If you cannot write that sentence without just naming the client, there is no match.
 - KEEP DIFFERENT CONTEXTS AS SEPARATE DRAFTS. Each digest entry is one task for one client; produce one draft (or unmatched item) per entry. Merge two entries into one draft ONLY when they are adjacent in time AND the same task on the same ticket. Never combine entries about different clients, projects or topics, and never write a note that strings unrelated work together with semicolons -- the technician can merge with one tap but cannot cleanly split.
@@ -212,7 +213,12 @@ DRAFT rules:
   let the technician assign it. A wrong ticket is far worse than none.
 - Every draft states its evidence: "ticket_number" (the id appears in the
   feed), "subject_topic" (the feed clearly concerns the ticket's subject), or
-  "client_only" (nothing beyond the client). client_only => ticket_id null.
+  "client_only" (nothing beyond the client). client_only => no ticket: put
+  it in "unmatched", not "drafts".
+- EVERY STRETCH OF TIME APPEARS EXACTLY ONCE across "drafts" and "unmatched":
+  "drafts" only for entries with a ticket_id, "unmatched" for everything
+  else. Never list the same range in both, never twice, and never as both
+  one long item and the shorter pieces that make it up.
   EVIDENCE MUST BE INSIDE THE DRAFT'S OWN TIME RANGE: never carry a ticket
   over from the previous stretch or assume work "continued" -- if the feed
   during this range shows a different client/project, it is not this ticket.
@@ -391,6 +397,7 @@ def build_combined(adapter, target: Optional[date_cls] = None,
             "activity_refs": [u.time_range], "client": "",
             "subject": f"(unmatched: {u.reason})" if u.reason else "(unmatched)",
             "status": "draft"})
+    new_items = drafts.dedupe_overlaps(new_items)
     new_items = drafts.filter_ignored(target, new_items)
 
     if not replace_drafts:
@@ -525,6 +532,7 @@ def generate_drafts(adapter, target: Optional[date_cls] = None) -> dict:
     for it in new_items:
         print(f"[inference] proposed {it.get('start_time')}-{it.get('end_time')} "
               f"#{it.get('ticket_id') or 'quick'}: {(it.get('note') or '')[:80]}")
+    new_items = drafts.dedupe_overlaps(new_items)
     new_items = drafts.filter_ignored(target, new_items)
     skipped_ignored = proposed - len(new_items)
     before_cov = len(new_items)
@@ -707,6 +715,7 @@ def fill_timesheet_gaps(adapter, target: Optional[date_cls] = None) -> dict:
         mid = (s + e) / 2
         return any(gs <= mid < ge for gs, ge in gaps)
     new_items = [it for it in new_items if _in_gap(it)]
+    new_items = drafts.dedupe_overlaps(new_items)
     new_items = drafts.filter_ignored(target, new_items)
     new_items = drafts.filter_covered(new_items, covered)
 

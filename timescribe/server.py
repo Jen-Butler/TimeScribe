@@ -1091,6 +1091,20 @@ def drafts_summarize(body: DraftAction, day: str = None):
     return {"ok": True, "note": note}
 
 
+@app.post("/api/drafts/dedupe")
+def drafts_dedupe(day: str = None):
+    """Clean up duplicate/overlapping UNPOSTED drafts already in a day's
+    list (posted entries are never touched)."""
+    target = _date.fromisoformat(day) if day else _date.today()
+    items = _drafts.load(target)
+    posted = [x for x in items if x.get("status") == "posted"]
+    rest = [x for x in items if x.get("status") != "posted"]
+    cleaned = _drafts.dedupe_overlaps(rest)
+    if len(cleaned) != len(rest):
+        _drafts.save(target, posted + cleaned)
+    return {"ok": True, "removed": len(rest) - len(cleaned), "count": len(posted) + len(cleaned)}
+
+
 @app.post("/api/drafts/restore")
 def drafts_restore(day: str = None):
     """Bring back a day's drafts from the sidelined (.corrupt) or backup

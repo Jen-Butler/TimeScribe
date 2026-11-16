@@ -233,6 +233,37 @@ def _hm_to_min(hm: str):
         return None
 
 
+def dedupe_overlaps(items: List[dict], max_frac: float = 0.5) -> List[dict]:
+    """Remove duplicate / overlapping suggestions from ONE generation pass.
+
+    The model sometimes returns the same stretch twice (once as a draft and
+    again as 'unmatched'), or both a long entry and the shorter pieces that
+    make it up. Each minute should belong to one entry, so accept greedily
+    -- ticketed entries first, then the more granular (shorter) ones -- and
+    drop anything that mostly overlaps what's already accepted. Entries
+    without valid times are kept. Original order is preserved."""
+    def span(it):
+        s, e = _hm_to_min(it.get("start_time")), _hm_to_min(it.get("end_time"))
+        return (s, e) if s is not None and e is not None and e > s else None
+    order = sorted(range(len(items)), key=lambda i: (
+        0 if items[i].get("status") == "approved" else 1,     # never lose reviewed work
+        0 if items[i].get("ticket_id") else 1,
+        (span(items[i])[1] - span(items[i])[0]) if span(items[i]) else 0, i))
+    accepted, keep = [], set()
+    for i in order:
+        sp = span(items[i])
+        if not sp:
+            keep.add(i); continue
+        ov = sum(_overlap_min(sp[0], sp[1], a, b) for a, b in accepted)
+        if ov > (sp[1] - sp[0]) * max_frac:
+            continue
+        accepted.append(sp); keep.add(i)
+    dropped = len(items) - len(keep)
+    if dropped:
+        print(f"[drafts] removed {dropped} duplicate/overlapping suggestion(s)")
+    return [it for i, it in enumerate(items) if i in keep]
+
+
 def covered_windows(d: date_cls, timesheet_rows: Optional[List[dict]] = None) -> List[tuple]:
     """Merged [start_min, end_min) windows already accounted for on this
     day: locally POSTED drafts plus (optionally) the agent's actual Halo
