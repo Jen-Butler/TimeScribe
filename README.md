@@ -48,11 +48,7 @@ Screenshots     ─┘ (local)  │                desktop dashboard / phone
 
 ## Install
 
-### Option A — from source (recommended)
-
-Release binaries are not yet code-signed, so Windows SmartScreen will fight
-you on downloads. Building from source sidesteps that entirely and takes one
-command:
+TimeScribe installs from source with one command:
 
 ```powershell
 git clone https://github.com/Jen-Butler/timescribe.git
@@ -67,15 +63,7 @@ Start Menu + run-at-login shortcuts, and launches the app. Flags:
 shortcut), `-BuildExe` (also freeze a standalone exe), `-Uninstall`
 (clean removal, optionally including all data and credentials).
 
-### Option B — installer
-
-Download `TimeScribe-Setup-<version>.exe` from the
-[Releases page](https://github.com/Jen-Butler/timescribe/releases) and run
-it — installs per-user (no admin), optional start-at-login, bundles
-ActivityWatch. Until releases are code-signed, expect a SmartScreen warning:
-⋯ → Keep → Show more → Keep anyway. Installer builds can lag behind `main`.
-
-### First-run setup (either option)
+### First-run setup
 
 1. First launch opens the dashboard. In **Settings › General**:
    - **HaloPSA URL** and **Client ID**, and a **sign-in method** (see
@@ -86,9 +74,8 @@ ActivityWatch. Until releases are code-signed, expect a SmartScreen warning:
    - API key for the chosen provider (stored in Windows Credential Manager,
      never on disk)
 2. Click **Connect to Halo**.
-3. Optional: drag `TimeScribeActivity-<version>.mcpb` into
-   Claude Desktop → Settings → Extensions to chat with your activity data
-   (config snippets are under **Settings › Claude / MCP**).
+3. Optional: to chat with your activity data from Claude, copy the config
+   snippet from **Settings › Claude / MCP**.
 
 ## Connecting to HaloPSA
 
@@ -211,18 +198,11 @@ day; 1280 px wide is around 20 MB per day.
 
 ## Uninstall
 
-**Source install:** `powershell -File setup.ps1 -Uninstall` — removes
-shortcuts, stops the app, uninstalls the package, and offers to purge all
-data and credentials. Then delete the cloned folder.
-
-**Installer:** Windows Settings → Apps → TimeScribe → Uninstall (or the
-uninstaller in the
-install folder). The uninstaller stops the app and any bundled ActivityWatch
-processes, removes all installed files and shortcuts, and then **asks whether
-to also delete your data** — settings, activity digests, draft time entries,
-logs, and the stored credentials in Windows Credential Manager. Answer *Yes*
-for a complete removal with no traces; answer *No* to keep your data for a
-future reinstall. Time entries already posted to HaloPSA are never touched.
+Run `powershell -File setup.ps1 -Uninstall` — it removes shortcuts, stops the
+app, uninstalls the package, and offers to purge all data and credentials
+(settings, activity digests, draft time entries, logs, and the entries in
+Windows Credential Manager). Then delete the cloned folder. Time entries
+already posted to HaloPSA are never touched.
 
 If you enabled phone access, also remove the firewall rule for ports
 8771–8772 and the TimeScribe certificate from the phone.
@@ -246,21 +226,10 @@ saved with a backup copy and recovered automatically on load. Restart the app;
 if they are still missing, `POST /api/drafts/restore?day=YYYY-MM-DD` on the
 local dashboard port restores the last saved copy.
 
-**"spawn EPERM" when installing the Claude Desktop extension.** The .mcpb
-bundles an unsigned `timescribe-mcp.exe`; Windows sometimes refuses to run
-it. To confirm and fix, on the affected machine:
-
-1. Check whether Defender removed or blocked it: Windows Security →
-   Virus & threat protection → Protection history. If quarantined, choose
-   Restore and add an Allow action, then disable/re-enable the extension in
-   Claude Desktop → Settings → Extensions.
-2. If you have **Smart App Control** on (Windows Security → App & browser
-   control), it blocks all unsigned executables and cannot allowlist
-   individual files. Until the binary is code-signed, the extension can't
-   run on such machines.
-3. Otherwise try launching the binary directly in a terminal:
-   `& "$env:APPDATA\Claude\Claude Extensions\<timescribe folder>\server\timescribe-mcp.exe"`
-   — the error shown there tells you what's blocking it.
+**"spawn EPERM" when installing a self-built Claude Desktop extension
+(.mcpb).** The bundle contains an unsigned `timescribe-mcp.exe`, which
+Windows Defender or Smart App Control may block. Use the config snippet from
+**Settings › Claude / MCP** instead; it runs the MCP server from source.
 
 **Python traceback popup mentioning `FileExistsError` and `aw-qt` right
 after install.** Harmless one-time race between two ActivityWatch launches
@@ -323,7 +292,9 @@ tools/
   find_test_actions.py   lists time entries attributed to the API application
 ```
 
-### Building release artifacts
+### Building a standalone exe / installer (optional)
+
+No prebuilt installers are published. To build your own:
 
 ```bash
 python fetch_aw.py                     # one-time: download ActivityWatch portable (~100 MB)
