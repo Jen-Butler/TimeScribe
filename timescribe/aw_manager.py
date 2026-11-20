@@ -105,3 +105,51 @@ def ensure_running(wait_seconds: int = 30) -> dict:
             time.sleep(1.5)
         return {"running": False, "launched": True,
                 "source": f"launched {exe} but server not up after {wait_seconds}s"}
+
+
+# ---------- version check ----------
+
+_ver_cache = {"at": 0.0, "latest": None}
+
+
+def _vtuple(v: str):
+    """'v0.13.2' -> (0, 13, 2); pre-release suffixes (b8, rc1) are ignored."""
+    import re
+    m = re.match(r"v?(\d+)\.(\d+)(?:\.(\d+))?", v or "")
+    return tuple(int(x or 0) for x in m.groups()) if m else ()
+
+
+def latest_stable(max_age_s: int = 12 * 3600) -> Optional[str]:
+    """Newest non-beta ActivityWatch release tag from GitHub (cached; a failed
+    lookup is retried after an hour). None when offline."""
+    now = time.time()
+    if _ver_cache["at"] and now - _ver_cache["at"] < max_age_s:
+        return _ver_cache["latest"]
+    latest = None
+    try:
+        r = httpx.get("https://api.github.com/repos/ActivityWatch/activitywatch/releases/latest",
+                      timeout=6, follow_redirects=True,
+                      headers={"Accept": "application/vnd.github+json"})
+        if r.status_code == 200:
+            latest = r.json().get("tag_name") or None
+    except Exception:
+        latest = None
+    _ver_cache["latest"] = latest
+    _ver_cache["at"] = now if latest else now - max_age_s + 3600
+    return latest
+
+
+def version_info() -> dict:
+    """Installed ActivityWatch version (from the running server) vs the newest
+    stable release."""
+    installed = None
+    try:
+        r = httpx.get(f"{aw_base_url()}/api/0/info", timeout=2,
+                      follow_redirects=True, trust_env=False)
+        if r.status_code == 200:
+            installed = r.json().get("version") or None
+    except Exception:
+        pass
+    latest = latest_stable() if installed else None
+    newer = bool(installed and latest and _vtuple(latest) > _vtuple(installed))
+    return {"installed": installed, "latest": latest, "update_available": newer}

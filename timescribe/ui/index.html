@@ -1479,7 +1479,11 @@ async function loadDigest() {
   } catch (e) { /* ignore */ }
   try {
     const s = await api('/api/activity/status');
-    $('pillAW').textContent = 'ActivityWatch: ' + (s.activitywatch ? 'connected' : 'not running');
+    $('pillAW').textContent = 'ActivityWatch: ' + (s.activitywatch ? 'connected' : 'not running')
+      + (s.version ? ' · ' + s.version : '') + (s.update_available ? ' (' + s.latest + ' available)' : '');
+    $('pillAW').title = s.update_available
+      ? 'ActivityWatch ' + s.latest + ' is out; you have ' + s.version + '. To update a source install: quit TimeScribe and ActivityWatch, delete the aw_dist folder in the project, run  python fetch_aw.py ' + s.latest + '  there, then start TimeScribe. Your activity history is kept.'
+      : (s.version ? 'ActivityWatch ' + s.version + (s.latest ? ' — up to date' : '') : '');
     $('pillAW').className = 'pill ' + (s.activitywatch ? 'ok' : 'err');
   } catch (e) { /* ignore */ }
 }

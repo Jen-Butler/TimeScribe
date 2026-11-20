@@ -891,8 +891,13 @@ from timescribe import activitywatch as _aw
 
 @app.get("/api/activity/status")
 def activity_status():
+    from timescribe import aw_manager as _awm
+    v = _awm.version_info()
     return {
-        "activitywatch": _aw.is_available(),
+        "activitywatch": bool(v["installed"]) or _aw.is_available(),
+        "version": v["installed"],
+        "latest": v["latest"],
+        "update_available": v["update_available"],
     }
 
 

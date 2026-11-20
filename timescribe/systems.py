@@ -117,7 +117,8 @@ def aw_rules(max_age_s: int = 300) -> list:
     rules = []
     try:
         import httpx
-        base = appconfig.load().get("aw_url", "http://localhost:5600").rstrip("/")
+        from timescribe import aw_manager
+        base = aw_manager.aw_base_url()
         r = httpx.get(f"{base}/api/0/settings", timeout=3, trust_env=False)
         for c in (r.json().get("classes") or []):
             rule = c.get("rule") or {}
