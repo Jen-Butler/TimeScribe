@@ -382,8 +382,8 @@ installed application folder.
 ## Acknowledgements
 
 - [ActivityWatch](https://activitywatch.net) (MPL-2.0) — bundled unmodified
-  (v0.13.2) for window/AFK tracking. Source for the exact bundled build:
-  https://github.com/ActivityWatch/activitywatch/releases/tag/v0.13.2
+  (v0.14.3) for window/AFK tracking. Source for the exact bundled build:
+  https://github.com/ActivityWatch/activitywatch/releases/tag/v0.14.3
   Citation: Bjäreholt, E., & Bjäreholt, J. (2024). ActivityWatch [Computer
   software]. https://doi.org/10.5281/zenodo.4957165 (see
   [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for BibTeX).

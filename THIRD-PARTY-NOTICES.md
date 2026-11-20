@@ -13,9 +13,9 @@ ActivityWatch's source.
 
 - Project: https://activitywatch.net
 - Source: https://github.com/ActivityWatch/activitywatch
-- Bundled version: **v0.13.2**
+- Bundled version: **v0.14.3**
 - Source for the exact bundled version:
-  https://github.com/ActivityWatch/activitywatch/releases/tag/v0.13.2
+  https://github.com/ActivityWatch/activitywatch/releases/tag/v0.14.3
 - License: **Mozilla Public License 2.0 (MPL-2.0)**
 
 The complete MPL-2.0 license text is reproduced at the bottom of this file.

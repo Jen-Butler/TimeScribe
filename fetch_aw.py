@@ -2,7 +2,7 @@
 aw_dist/activitywatch/ so PyInstaller + Inno can bundle it.
 
 Usage:  python fetch_aw.py [version]
-Default version pinned below; pass e.g. `python fetch_aw.py v0.13.2` to bump.
+Default version pinned below; pass e.g. `python fetch_aw.py v0.14.3` to bump.
 
 ActivityWatch is MPL-2.0; bundling the unmodified official build with
 attribution is permitted. See https://activitywatch.net
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-PINNED = "v0.13.2"
+PINNED = "v0.14.3"
 
 
 def main():
