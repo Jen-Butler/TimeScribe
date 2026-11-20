@@ -577,6 +577,17 @@
   </div>
 
   <div class="card">
+    <h2>ActivityWatch</h2>
+    <div id="awVerStatus" style="font-size:12px;color:var(--muted)">Checking…</div>
+    <button id="btnAwUpdate" style="margin-top:10px;display:none;background:var(--good)">Update ActivityWatch</button>
+    <p style="color:var(--muted);font-size:11px;margin-top:8px">
+      Updating downloads the new version in the background, then pauses
+      activity capture for a few seconds while it swaps over. Your recorded
+      history is kept, and the previous version is put back if the new one
+      does not start.</p>
+  </div>
+
+  <div class="card">
     <h2>Logs
       <button id="btnLogsRefresh" style="margin:0;padding:4px 12px;font-size:12px">Refresh</button>
       <select id="logLines" style="width:auto;padding:4px 8px;font-size:12px;margin-left:8px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text)">
@@ -1482,8 +1493,9 @@ async function loadDigest() {
     $('pillAW').textContent = 'ActivityWatch: ' + (s.activitywatch ? 'connected' : 'not running')
       + (s.version ? ' · ' + s.version : '') + (s.update_available ? ' (' + s.latest + ' available)' : '');
     $('pillAW').title = s.update_available
-      ? 'ActivityWatch ' + s.latest + ' is out; you have ' + s.version + '. To update a source install: quit TimeScribe and ActivityWatch, delete the aw_dist folder in the project, run  python fetch_aw.py ' + s.latest + '  there, then start TimeScribe. Your activity history is kept.'
+      ? 'ActivityWatch ' + s.latest + ' is out; you have ' + s.version + '. Update it from Settings › System.'
       : (s.version ? 'ActivityWatch ' + s.version + (s.latest ? ' — up to date' : '') : '');
+    renderAwUpdate(s);
     $('pillAW').className = 'pill ' + (s.activitywatch ? 'ok' : 'err');
   } catch (e) { /* ignore */ }
 }
@@ -2636,6 +2648,46 @@ async function loadTicketProfile() {
   } catch (e) { /* ignore */ }
 }
 loadTicketProfile();
+
+// ---- ActivityWatch version / update ----
+let _awPoll = null;
+function renderAwUpdate(s) {
+  const el = $('awVerStatus'), btn = $('btnAwUpdate');
+  if (!el) return;
+  const u = s.update || {};
+  const busy = u.state === 'downloading' || u.state === 'installing';
+  if (busy) {
+    el.className = ''; el.textContent = u.message || 'Updating…';
+    btn.style.display = 'none';
+    if (!_awPoll) _awPoll = setInterval(async () => {
+      try { renderAwUpdate(await api('/api/activity/status')); } catch (e) { /* AW restarting */ }
+    }, 2000);
+    return;
+  }
+  if (_awPoll) { clearInterval(_awPoll); _awPoll = null; }
+  let msg = s.version ? 'Installed: ' + s.version : 'ActivityWatch is not running.';
+  if (s.version && s.latest) msg += s.update_available ? ' — ' + s.latest + ' is available.' : ' — up to date.';
+  if (s.update_available && u.managed === false)
+    msg += ' This ActivityWatch was installed separately; update it with its own installer.';
+  if (u.state === 'error') { el.className = 'err-text'; msg = u.message + ' ' + msg; }
+  else if (u.state === 'done') { el.className = 'ok-text'; msg = u.message; }
+  else el.className = '';
+  el.textContent = msg;
+  btn.style.display = (s.update_available && u.managed) ? '' : 'none';
+  btn.textContent = 'Update ActivityWatch to ' + (s.latest || '');
+}
+$('btnAwUpdate').onclick = async () => {
+  if (!confirm('Update ActivityWatch now? Activity capture pauses for a few seconds during the swap.')) return;
+  $('btnAwUpdate').style.display = 'none';
+  $('awVerStatus').textContent = 'Starting…';
+  try {
+    await api('/api/activity/update', {method:'POST'});
+    renderAwUpdate(await api('/api/activity/status'));
+  } catch (e) {
+    $('awVerStatus').className = 'err-text';
+    $('awVerStatus').textContent = 'Update failed: ' + e.message;
+  }
+};
 
 // ---- updates ----
 async function checkUpdate(fetch) {

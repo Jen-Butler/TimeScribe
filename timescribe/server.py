@@ -898,7 +898,19 @@ def activity_status():
         "version": v["installed"],
         "latest": v["latest"],
         "update_available": v["update_available"],
+        "update": _awm.update_state(),
     }
+
+
+@app.post("/api/activity/update")
+def activity_update():
+    """Download the newest stable ActivityWatch and swap it in (bundled copy
+    only). Runs in the background; poll /api/activity/status for progress."""
+    from timescribe import aw_manager as _awm
+    r = _awm.start_update()
+    if not r.get("ok"):
+        raise HTTPException(400, r.get("message") or "Update not available")
+    return r
 
 
 @app.post("/api/digest/run")
